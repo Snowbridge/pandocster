@@ -55,7 +55,8 @@ def _parse_pandoc(raw: Any, defaults: PandocConfig) -> PandocConfig:
             raise ConfigError("'pandoc.filters' must be a list of strings")
         filters = list(filters)
     else:
-        filters = list(defaults.filters)
+        # Key missing: apply no filters (do not use defaults).
+        filters = []
     metadata = raw.get("metadata")
     if metadata is not None:
         # Keep as-is: arbitrary YAML structure, we do not parse or validate it.
@@ -79,18 +80,9 @@ def _parse_app_config(raw: Any, defaults: AppConfig) -> AppConfig:
         return defaults
     if not isinstance(raw, dict):
         raise ConfigError(f"Expected '{ROOT_KEY}' value as dict, got {type(raw)}")
-    builtin = raw.get("builtin-filters")
-    if builtin is not None:
-        if not isinstance(builtin, list) or not all(
-            isinstance(x, str) for x in builtin
-        ):
-            raise ConfigError("'builtin-filters' must be a list of strings")
-        builtin_filters = list(builtin)
-    else:
-        builtin_filters = list(defaults.builtin_filters)
     pandoc_raw = raw.get("pandoc")
     pandoc = _parse_pandoc(pandoc_raw, defaults.pandoc)
-    return AppConfig(builtin_filters=builtin_filters, pandoc=pandoc)
+    return AppConfig(pandoc=pandoc)
 
 
 def _load_yaml(path: Path) -> Any:
@@ -109,7 +101,6 @@ def config_to_dict(cfg: AppConfig) -> dict[str, Any]:
     }
     return {
         ROOT_KEY: {
-            "builtin-filters": cfg.builtin_filters,
             "pandoc": pandoc_data,
         }
     }

@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from importlib import resources
 from dataclasses import dataclass
 from typing import Any
 
+_DEFAULT_FILTER_ORDER = (
+    "header_offset",
+    "link_anchors",
+    "absorb_nonvisual_paragraphs",
+    "newpage",
+)
 
 @dataclass
 class PandocOption:
@@ -28,24 +35,19 @@ class PandocConfig:
 
 @dataclass
 class AppConfig:
-    """Pandocster application config: builtin filters and pandoc settings."""
+    """Pandocster application config: pandoc settings."""
 
-    builtin_filters: list[str]
     pandoc: PandocConfig
 
 
 def default_config() -> AppConfig:
-    """Return the default configuration (matches docs/config.yml)."""
+    """Return the default configuration."""
+    base = resources.files("pandoc-filters")
+    default_filters = [str(base / f"{name}.lua") for name in _DEFAULT_FILTER_ORDER]
     return AppConfig(
-        builtin_filters=[
-            "header_offset",
-            "link_anchors",
-            "absorb_nonvisual_paragraphs",
-            "newpage",
-        ],
         pandoc=PandocConfig(
             bin="pandoc",
-            filters=["$BUILTIN"],
+            filters=default_filters,
             metadata={
                 "lang": "ru",
                 "toc-title": "Оглавление",

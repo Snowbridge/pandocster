@@ -1,16 +1,10 @@
 # Pandocster configuration
 pandocster:
-  # here you can adjust the order and content of builtin filters
-  builtin-filters:
-    - absorb_nonvisual_paragraphs
-    - header_offset
-    - link_anchors
-    - newpage
   pandoc:
     bin: pandoc
-    # Filters are applied in the order they are listed, $BUILTIN is the collection of pandocster builtin filters
-    filters:
-      - $BUILTIN
+    # Optional: list of paths to Lua filters, applied in order. If omitted, default filters are used.
+    # filters:
+    #   - /path/to/filter.lua
     # Metadata is passed to pandoc as is
     metadata:
       lang: ru

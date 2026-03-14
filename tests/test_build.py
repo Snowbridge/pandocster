@@ -67,13 +67,13 @@ def test_run_build_invokes_pandoc_with_expected_args(
     # Format option must be passed through.
     assert "--to=docx" in captured_args
 
-    # Lua filters must be present; order follows default config (builtin_filters).
+    # Lua filters must be present; order follows default pandoc.filters.
     filter_args = [arg for arg in captured_args if arg.startswith("--lua-filter=")]
     filter_names = [Path(arg.split("=", 1)[1]).name for arg in filter_args]
     assert filter_names == [
-        "absorb_nonvisual_paragraphs.lua",
         "header_offset.lua",
         "link_anchors.lua",
+        "absorb_nonvisual_paragraphs.lua",
         "newpage.lua",
     ]
 

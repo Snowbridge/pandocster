@@ -6,7 +6,6 @@ import os
 import shutil
 import subprocess
 import tempfile
-from importlib import resources
 from pathlib import Path
 from typing import Any, Callable, Iterable, List, Sequence
 
@@ -19,48 +18,6 @@ from .prepare import PrepareError, run_prepare
 
 class BuildError(RuntimeError):
     """User-facing errors for the `build` command."""
-
-
-BUILTIN_PLACEHOLDER = "$BUILTIN"
-
-
-def _resolve_builtin_filters(names: List[str]) -> List[str]:
-    """Resolve builtin filter names to --lua-filter arguments.
-
-    Paths are resolved via the installed `pandoc-filters` package so that the
-    CLI behaves consistently regardless of the current working directory.
-    """
-    if not names:
-        return []
-    base = resources.files("pandoc-filters")
-    return [f"--lua-filter={str(base / f'{name}.lua')}" for name in names]
-
-
-def _get_lua_filters(
-    pandoc_filters: List[str],
-    builtin_filter_names: List[str],
-) -> List[str]:
-    """Return pandoc --lua-filter arguments from config.
-
-    - If pandoc_filters is non-empty: use it. Each item is either a user path
-      (passed as-is as --lua-filter=...) or BUILTIN_PLACEHOLDER, which is
-      replaced by all resolved builtin filters from builtin_filter_names.
-    - If pandoc_filters is empty: use builtin_filter_names resolved to paths
-      under the packaged pandoc-filters. Empty builtin_filter_names yields no
-      filters.
-    """
-    resolved_builtin = _resolve_builtin_filters(builtin_filter_names)
-
-    if pandoc_filters:
-        result: List[str] = []
-        for item in pandoc_filters:
-            if item == BUILTIN_PLACEHOLDER:
-                result.extend(resolved_builtin)
-            else:
-                result.append(f"--lua-filter={item}")
-        return result
-
-    return resolved_builtin
 
 
 def _iter_markdown_files(build: Path) -> List[Path]:
@@ -111,7 +68,6 @@ def _build_pandoc_args(
     output_path: Path,
     resources_dir: Path,
     pandoc_config: PandocConfig,
-    builtin_filters: List[str],
     metadata_file_path: Path | None = None,
 ) -> List[str]:
     args: List[str] = [pandoc_config.bin]
@@ -128,9 +84,9 @@ def _build_pandoc_args(
     )
     if metadata_file_path is not None:
         args.append(f"--metadata-file={metadata_file_path}")
-    args.extend(
-        _get_lua_filters(pandoc_config.filters, builtin_filters),
-    )
+    if pandoc_config.filters:
+        for filter_path in pandoc_config.filters:
+            args.append(f"--lua-filter={filter_path}")
     return args
 
 
@@ -211,7 +167,6 @@ def run_build(
                 output_path=output_path,
                 resources_dir=resources_dir,
                 pandoc_config=pandoc_cfg,
-                builtin_filters=cfg.builtin_filters,
                 metadata_file_path=metadata_file_path,
             )
         completed = actual_runner(
