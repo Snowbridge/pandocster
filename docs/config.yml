@@ -1,0 +1,29 @@
+# Pandocster configuration
+pandocster:
+  # here you can adjust the order and content of builtin filters
+  builtin-filters:
+    - absorb_nonvisual_paragraphs
+    - header_offset
+    - link_anchors
+    - newpage
+  pandoc:
+    bin: pandoc
+    # Filters are applied in the order they are listed, $BUILTIN is the collection of pandocster builtin filters
+    filters:
+      - $BUILTIN
+    # Metadata is passed to pandoc as is
+    metadata:
+      lang: ru
+      toc-title: Оглавление
+      # Arbitrary YAML structure; pandocster does not parse it, only writes to a temp file
+      # and pass its path to pandoc via --metadata-file option.
+      foo:
+        bar: baz
+        qux:
+          - quux
+    # Options and flags that are passed to pandoc as is
+    options:
+      - name: toc-depth
+        value: 3
+      - name: standalone
+        value: true

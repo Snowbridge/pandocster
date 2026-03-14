@@ -1,93 +1,64 @@
-## Pandocster
+# Pandocster
 
-Pandocster — это каркас для CLI-утилиты вокруг `pandoc`, оформленный как современный Python-проект.
+Pandocster is a CLI helper around [pandoc](https://pandoc.org/) workflows. It builds a single document (PDF, HTML, and other formats) from a tree of Markdown files with minimal configuration.
 
-### Требования
+## Quick start
 
-- Python 3.10+
+```bash
+$ pandocster check
+$ pandocster build ./docs/md --to docx
+```
 
-### Установка окружения
+The resulting DOCX (or other format) is written in the current directory; the default output name is derived from the current working directory unless you pass `--file-name`.
 
-1. Создайте виртуальное окружение в корне проекта:
+## What it does
 
-   ```bash
-   python -m venv .venv
-   ```
+- **Build** — Runs pandoc on the prepared tree with configurable options, metadata, and Lua filters. Includes built-in filters: `absorb_nonvisual_paragraphs`, `header_offset`, `link_anchors`, `newpage`. During preparation stage `Pandocster` builds a staging tree from a source Markdown directory: copies files, injects header-offset and anchor comments for structure, rewrites image links into a shared `resources/` directory, and preprocesses reference-style links.
+- **Check** — `pandocster check` verifies that pandoc (≥3.8.3) and its Lua engine (≥5.4) are installed and sufficient.
+- **Config** — Optional `pandocster.yaml` in the project directory or `~/.config/pandocster/config.yaml` globally. Use `pandocster config show` to print the effective config and `pandocster config create` to write a `pandocster.yaml` in the current directory.
 
-2. Активируйте окружение:
+## How it works
 
-   - Windows:
+1. You simply run `pandocster build <src> --to <format>` (e.g. `pdf`, `html`) and you get standalone file.
+2. Config is loaded from the current directory (`pandocster.yaml`), then global config, then built-in defaults.
+3. **Build** collects all `.md` files under the build directory (with `_index.md` first per directory), runs pandoc with the configured filters and metadata, and writes the output in the current working directory as `<file-name>.<format>`. The build directory can be removed after success unless you pass `--preserve-build`.
 
-     ```bash
-     .venv\Scripts\activate
-     ```
+## Installation
 
-   - Unix:
+Install Pandocster with **pipx** so the tool runs in an isolated environment and the `pandocster` command is available globally:
 
-     ```bash
-     source .venv/bin/activate
-     ```
+```bash
+pipx install pandocster
+```
 
-3. Установите пакет в режиме разработки вместе с dev-зависимостями:
+From a local clone:
 
-   ```bash
-   python -m pip install -e ".[dev]"
-   ```
+```bash
+pipx install .
+```
 
-### Основные команды
+You must have **pandoc** (and its built-in Lua engine) installed separately. Run `pandocster check` to verify versions.
 
-- Запуск тестов:
+- **Windows**: `winget install JohnMacFarlane.Pandoc`
+- **Debian**: `sudo apt install pandoc.`
+- **RHEL**: `# dnf install pandoc.`
+- **Arch**: `pacman -S pandoc.`
 
-  ```bash
-  pytest
-  ```
+And there are more ways to install, please refer to official documentation [https://pandoc.org/installing.html](https://pandoc.org/installing.html).
 
-- Проверка установки pandoc и Lua-движка:
+## Requirements
 
-  ```bash
-  pandocster check
-  ```
+- Python ≥3.10
+- pandoc ≥3.8.3 with Lua ≥5.4
 
-  Команда выполняет `pandoc -v` и проверяет, что установлен `pandoc` версии не ниже `3.8.3`
-  и встроенный Lua scripting engine версии не ниже `5.4`. Все сообщения, которые выводит
-  команда `pandocster check`, будут на английском. При несоответствии версий будет показана
-  краткая справка с рекомендацией обратиться к официальной странице установки pandoc:
-  <https://pandoc.org/installing.html>
+## Commands
 
-- Линтинг и форматирование:
 
-  ```bash
-  ruff check src tests
-  ruff format
-  ```
+| Command                                        | Description                                      |
+| ---------------------------------------------- | ------------------------------------------------ |
+| `pandocster check`                             | Verify pandoc and Lua versions                   |
+| `pandocster build <src> [build] --to <format>` | Prepare and render a document (e.g. `--to pdf`)  |
+| `pandocster config show`                       | Print effective config as YAML                   |
+| `pandocster config create`                     | Write `pandocster.yaml` in the current directory |
 
-- Проверка типов:
 
-  ```bash
-  mypy src tests
-  ```
-
-- Установка git-хуков:
-
-  ```bash
-  pre-commit install
-  ```
-
-- Запуск CLI после установки:
-  - Общая справка:
-
-    ```bash
-    pandocster --help
-    ```
-
-  - Подготовка структуры файлов для верстки:
-
-    ```bash
-    pandocster prepare SRC [BUILD]
-    ```
-
-    Где:
-
-    - `SRC` — путь к каталогу с исходными файлами (markdown и другими ресурсами);
-    - `BUILD` — путь к каталогу, в который будет скопировано содержимое `SRC` и
-      подготовлены файлы для верстки. По умолчанию используется `./build`.

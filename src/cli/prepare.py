@@ -11,7 +11,7 @@ from service.commands.prepare import PrepareError, run_prepare
 from .entrypoint import main
 
 
-@main.command("prepare")
+@main.command("prepare", hidden=True)
 @click.argument("src", type=str, required=True)
 @click.argument("build", type=str, required=False, default="./build")
 def prepare_command(src: str, build: str) -> NoReturn:
