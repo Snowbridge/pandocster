@@ -1,10 +1,26 @@
 [project]
 name = "pandocster"
-version = "2.0.0"
-description = "Pandocster: a CLI helper around pandoc workflows."
+version = "2.1.0"
+readme = "README.md"
+license = {file = "LICENSE.txt"}
+authors = [
+    {name = "Leo Sadovsky", email = "leo@sadovskie.ru"}
+]
+keywords = ["pandoc", "pandocster", "pandoc-filters", "doc-as-code", "documentation", "markdown", "pdf", "html", "docx"]
+description = "Pandocster: a CLI helper around pandoc workflows, it helps you to build your documentation from markdown files."
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
 requires-python = ">=3.10"
 dependencies = [
     "click>=8.1",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -27,7 +43,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-service = ["pandoc_filters/*.lua"]
+"pandoc-filters" = ["*.lua"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

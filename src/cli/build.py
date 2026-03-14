@@ -7,10 +7,11 @@ from typing import NoReturn
 
 import click
 
+from config.load import load_config
 from service.commands.build import BuildError, run_build
 from service.commands.prepare import PrepareError
-from .entrypoint import main
 
+from .entrypoint import main
 
 _TO_CHOICES = [
     "ansi",
@@ -124,6 +125,7 @@ def build_command(
     """Prepare a build directory and render a document via pandoc."""
     src_path = Path(src).expanduser().resolve()
     build_path = Path(build).expanduser().resolve()
+    config = load_config(Path.cwd())
 
     try:
         output_path = run_build(
@@ -132,6 +134,7 @@ def build_command(
             to_format=to_format,
             file_name=file_name,
             preserve_build=preserve_build,
+            config=config,
         )
     except (PrepareError, BuildError) as exc:
         click.echo(str(exc), err=True)

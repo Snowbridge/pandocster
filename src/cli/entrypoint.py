@@ -26,6 +26,11 @@ try:  # pragma: no cover - thin wiring
 except Exception:  # pragma: no cover - defensive
     _build_command = None
 
+try:  # pragma: no cover - thin wiring
+    from . import config_cmd as _config_command  # noqa: F401
+except Exception:  # pragma: no cover - defensive
+    _config_command = None
+
 
 if __name__ == "__main__":
     main()
