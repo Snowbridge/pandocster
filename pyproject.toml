@@ -1,6 +1,6 @@
 [project]
 name = "pandocster"
-version = "2.1.1"
+version = "2.2.0"
 readme = "README.md"
 license = {file = "LICENSE.txt"}
 authors = [
@@ -54,6 +54,8 @@ addopts = "-ra --strict-markers"
 target-version = "py310"
 line-length = 88
 src = ["src", "tests"]
+
+[tool.ruff.lint]
 select = ["E", "F", "I"]
 
 [tool.mypy]

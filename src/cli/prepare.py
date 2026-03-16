@@ -7,7 +7,9 @@ from typing import NoReturn
 
 import click
 
+from config import load_config
 from service.commands.prepare import PrepareError, run_prepare
+
 from .entrypoint import main
 
 
@@ -18,9 +20,10 @@ def prepare_command(src: str, build: str) -> NoReturn:
     """Prepare a build directory from source markdown tree."""
     src_path = Path(src).expanduser().resolve()
     build_path = Path(build).expanduser().resolve()
+    cfg = load_config()
 
     try:
-        run_prepare(src_path, build_path)
+        run_prepare(src_path, build_path, cfg)
     except PrepareError as exc:
         click.echo(str(exc), err=True)
         raise SystemExit(1)

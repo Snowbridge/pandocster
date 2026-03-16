@@ -1,32 +1,24 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from service.commands.prepare import run_prepare
 
 
-def _write(file: Path, content: str, binary: bool = False) -> None:
-    file.parent.mkdir(parents=True, exist_ok=True)
-    if binary:
-        file.write_bytes(content.encode("utf-8"))
-    else:
-        file.write_text(content, encoding="utf-8")
-
-
-def test_prepare_copies_local_images_and_rewrites_links(tmp_path: Path) -> None:
+def test_prepare_copies_local_images_and_rewrites_links(
+    tmp_path: Path, write_file: Callable
+) -> None:
     src = tmp_path / "src"
     build = tmp_path / "build"
 
-    # ROOT_LEVEL will be src / "md".
     img_rel = Path("images") / "fig" / "diagram.png"
-    # In the real project layout, images live under the same section directory.
-    # Reflect that by placing the image under src / "md" / "01-one" / ...
-    _write(src / "md" / "01-one" / "doc.md", "![Diagram](images/fig/diagram.png)\n")
-    _write(src / "md" / "01-one" / img_rel, "binary", binary=True)
+    write_file(src / "md" / "01-one" / "doc.md", "![Diagram](images/fig/diagram.png)\n")
+    write_file(src / "md" / "01-one" / img_rel, "binary", binary=True)
 
     run_prepare(src, build)
 
-    # Resources directory should contain the image with preserved structure after ROOT_LEVEL.
+    # Resources directory should contain the image with preserved structure.
     resources_img = build / "resources" / "md" / "01-one" / img_rel
     assert resources_img.exists()
 
@@ -37,11 +29,11 @@ def test_prepare_copies_local_images_and_rewrites_links(tmp_path: Path) -> None:
     assert "![Diagram](md/01-one/images/fig/diagram.png)" in processed.splitlines()
 
 
-def test_prepare_ignores_url_images(tmp_path: Path) -> None:
+def test_prepare_ignores_url_images(tmp_path: Path, write_file: Callable) -> None:
     src = tmp_path / "src"
     build = tmp_path / "build"
 
-    _write(
+    write_file(
         src / "md" / "doc.md",
         "![Remote](https://example.com/image.png)\n",
     )
@@ -52,14 +44,16 @@ def test_prepare_ignores_url_images(tmp_path: Path) -> None:
     assert "![Remote](https://example.com/image.png)" in processed.splitlines()
 
 
-def test_prepare_warns_and_keeps_image_outside_root(tmp_path: Path, capsys: object) -> None:
+def test_prepare_warns_and_keeps_image_outside_root(
+    tmp_path: Path, capsys: object, write_file: Callable
+) -> None:
     src = tmp_path / "src"
     build = tmp_path / "build"
 
     external_img = tmp_path / "image.png"
-    _write(external_img, "binary", binary=True)
+    write_file(external_img, "binary", binary=True)
 
-    _write(
+    write_file(
         src / "md" / "doc.md",
         "![Ext](../image.png)\n",
     )

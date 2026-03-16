@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
-
 import subprocess
+from typing import Any
 
 from service.commands.checks import (
     MIN_LUA_VERSION,
@@ -14,7 +13,9 @@ from service.commands.checks import (
 
 
 def _completed(stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(args=["pandoc", "-v"], returncode=0, stdout=stdout, stderr=stderr)
+    return subprocess.CompletedProcess(
+        args=["pandoc", "-v"], returncode=0, stdout=stdout, stderr=stderr
+    )
 
 
 def test_analyse_pandoc_output_ok() -> None:

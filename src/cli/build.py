@@ -96,6 +96,7 @@ _TO_CHOICES = [
 @click.argument("src", type=str, required=True)
 @click.argument("build", type=str, required=False, default="./build")
 @click.option(
+    "-t",
     "--to",
     "to_format",
     type=click.Choice(_TO_CHOICES),
@@ -103,6 +104,7 @@ _TO_CHOICES = [
     help="Output format passed to pandoc.",
 )
 @click.option(
+    "-f",
     "--file-name",
     "file_name",
     type=str,
@@ -110,6 +112,7 @@ _TO_CHOICES = [
     help="Base name of the output file (without extension).",
 )
 @click.option(
+    "-p",
     "--preserve-build",
     is_flag=True,
     default=False,

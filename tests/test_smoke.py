@@ -10,8 +10,6 @@ def test_package_importable() -> None:
     assert module is not None
 
 
-def test_core_run_returns_int() -> None:
-    from pandocster import core
-
-    code = core.run()
-    assert isinstance(code, int)
+def test_cli_entry_point_importable() -> None:
+    module = importlib.import_module("cli.entrypoint")
+    assert hasattr(module, "main")

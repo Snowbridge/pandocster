@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Callable, Iterable, List, Sequence
+from typing import Any, Iterable
 
 import yaml
 
 from config.schema import AppConfig, PandocConfig, default_config
+from service.markdown_walker import walk_markdown_files
+from service.subprocess_runner import Runner, _default_runner
 
 from .prepare import PrepareError, run_prepare
 
@@ -20,27 +21,18 @@ class BuildError(RuntimeError):
     """User-facing errors for the `build` command."""
 
 
-def _iter_markdown_files(build: Path) -> List[Path]:
-    """Collect all markdown files under the build directory, sorted by path."""
-    files: List[Path] = []
-    for root, dirnames, filenames in os.walk(build):
-        dirnames.sort()
-        filenames.sort()
-        root_path = Path(root)
-        for filename in filenames:
-            if not filename.lower().endswith(".md"):
-                continue
-            files.append(root_path / filename)
+def _iter_markdown_files(build: Path) -> list[Path]:
+    """Collect all markdown files under the build directory, sorted by path.
 
-    # Sort by (relative directory, special index marker, filename) so that
-    # `_index.md` comes first within each directory, while preserving
-    # lexicographic ordering between directories and the remaining files.
+    Within each directory, _index.md comes first; otherwise lexicographic order.
+    """
+    files = [path for path, _ in walk_markdown_files(build)]
+
     def _sort_key(path: Path) -> tuple[str, int, str]:
         rel = path.relative_to(build)
         parent = rel.parent.as_posix()
-        name = rel.name
-        is_index = 0 if name == "_index.md" else 1
-        return parent, is_index, name
+        is_index = 0 if rel.name == "_index.md" else 1
+        return parent, is_index, rel.name
 
     files.sort(key=_sort_key)
     return files
@@ -69,8 +61,8 @@ def _build_pandoc_args(
     resources_dir: Path,
     pandoc_config: PandocConfig,
     metadata_file_path: Path | None = None,
-) -> List[str]:
-    args: List[str] = [pandoc_config.bin]
+) -> list[str]:
+    args: list[str] = [pandoc_config.bin]
     for path in md_files:
         args.append(str(path))
     for opt in pandoc_config.options:
@@ -90,13 +82,6 @@ def _build_pandoc_args(
     return args
 
 
-Runner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
-
-
-def _default_runner(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, check=False, capture_output=True, text=True)
-
-
 def run_build(
     src: Path,
     build: Path,
@@ -113,30 +98,26 @@ def run_build(
     cfg = config if config is not None else default_config()
     pandoc_cfg = cfg.pandoc
 
-    src_path = src.expanduser().resolve()
-    build_path = build.expanduser().resolve()
-
-    if src_path == build_path:
+    if src == build:
         raise BuildError("Source and build directories must not be the same.")
 
     try:
-        run_prepare(src_path, build_path)
+        run_prepare(src, build, cfg)
     except PrepareError as exc:
         raise BuildError(str(exc)) from exc
 
-    md_files = _iter_markdown_files(build_path)
+    md_files = _iter_markdown_files(build)
     if not md_files:
         raise BuildError(
-            f"No markdown (*.md) files found under build directory: {build_path}"
+            f"No markdown (*.md) files found under build directory: {build}"
         )
 
     effective_file_name = file_name or Path.cwd().name
     if not effective_file_name:
         raise BuildError("Could not determine default output file name.")
 
-    # The final document is created in the current working directory.
     output_path = Path.cwd() / f"{effective_file_name}.{to_format}"
-    resources_dir = build_path / "resources"
+    resources_dir = build / "resources"
 
     if not resources_dir.exists() or not resources_dir.is_dir():
         raise BuildError(f"Resources directory does not exist: {resources_dir}")
@@ -191,7 +172,7 @@ def run_build(
 
     if not preserve_build:
         try:
-            shutil.rmtree(build_path)
+            shutil.rmtree(build)
         except OSError as exc:
             raise BuildError(f"Failed to remove build directory: {exc}") from exc
 

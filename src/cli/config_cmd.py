@@ -8,7 +8,8 @@ from typing import NoReturn
 import click
 import yaml
 
-from config import ConfigError, config_to_dict, get_app_config
+from config import ConfigError, config_to_dict, load_config
+from config.load import GLOBAL_CONFIG_PATH
 
 from .entrypoint import main
 
@@ -22,7 +23,7 @@ def config_group() -> None:
 def config_show() -> NoReturn:
     """Print current app config (local/global file or defaults) as YAML."""
     try:
-        cfg = get_app_config()
+        cfg = load_config()
     except ConfigError as exc:
         click.echo(str(exc), err=True)
         raise SystemExit(1) from exc
@@ -33,16 +34,36 @@ def config_show() -> NoReturn:
 
 
 @config_group.command("create")
-def config_create() -> NoReturn:
-    """Write pandocster.yaml in current directory. Overwrites if present."""
+@click.option(
+    "-g",
+    "--global",
+    "use_global",
+    is_flag=True,
+    default=False,
+    help="Write to ~/.config/pandocster/config.yaml instead of ./pandocster.yaml.",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Overwrite an existing config file without prompting.",
+)
+def config_create(use_global: bool, force: bool) -> NoReturn:
+    """Write config file in current directory (or globally with --global)."""
     try:
-        cfg = get_app_config()
+        cfg = load_config()
     except ConfigError as exc:
         click.echo(str(exc), err=True)
         raise SystemExit(1) from exc
-    path = Path.cwd() / "pandocster.yaml"
+    path = GLOBAL_CONFIG_PATH if use_global else Path.cwd() / "pandocster.yaml"
     if path.exists():
-        path.unlink()
+        if not force:
+            click.echo(
+                f"{path} already exists. Pass --force to overwrite it.", err=True
+            )
+            raise SystemExit(1)
+    if use_global:
+        path.parent.mkdir(parents=True, exist_ok=True)
     data = config_to_dict(cfg)
     try:
         yaml_str = yaml.dump(

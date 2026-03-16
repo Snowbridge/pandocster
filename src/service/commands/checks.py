@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import Enum, auto
-import subprocess
-from typing import Callable, Iterable, Optional, Sequence, Tuple
+from typing import Iterable
 
+from service.subprocess_runner import Runner, _default_runner
 
 MIN_PANDOC_VERSION = "3.8.3"
 MIN_LUA_VERSION = "5.4"
+MIN_DOT_VERSION = "14.1.1"
+MIN_MMDC_VERSION = "11.12.0"
 
 
 class PandocCheckStatus(Enum):
@@ -23,24 +26,19 @@ class PandocCheckStatus(Enum):
 @dataclass
 class PandocCheckResult:
     status: PandocCheckStatus
-    pandoc_version: Optional[str] = None
-    lua_version: Optional[str] = None
+    pandoc_version: str | None = None
+    lua_version: str | None = None
     raw_output: str | None = None
     error_message: str | None = None
 
 
-def _parse_version(raw: str) -> Tuple[int, int, int]:
+def _parse_version(raw: str) -> tuple[int, int, int]:
     parts: list[int] = []
     for token in raw.split("."):
-        number = ""
-        for ch in token:
-            if ch.isdigit():
-                number += ch
-            else:
-                break
-        if not number:
+        m = re.match(r"\d+", token)
+        if not m:
             break
-        parts.append(int(number))
+        parts.append(int(m.group()))
         if len(parts) == 3:
             break
 
@@ -54,7 +52,7 @@ def _version_less_than(left: str, right: str) -> bool:
     return _parse_version(left) < _parse_version(right)
 
 
-def _extract_pandoc_version(lines: Iterable[str]) -> Optional[str]:
+def _extract_pandoc_version(lines: Iterable[str]) -> str | None:
     for line in lines:
         stripped = line.strip()
         if stripped.lower().startswith("pandoc "):
@@ -64,7 +62,7 @@ def _extract_pandoc_version(lines: Iterable[str]) -> Optional[str]:
     return None
 
 
-def _extract_lua_version(lines: Iterable[str]) -> Optional[str]:
+def _extract_lua_version(lines: Iterable[str]) -> str | None:
     needle = "scripting engine: lua "
     for line in lines:
         lowered = line.strip().lower()
@@ -74,18 +72,6 @@ def _extract_lua_version(lines: Iterable[str]) -> Optional[str]:
             if tokens:
                 return tokens[-1]
     return None
-
-
-Runner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
-
-
-def _default_runner(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        args,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
 
 
 def analyse_pandoc_output(output: str) -> PandocCheckResult:
@@ -167,4 +153,120 @@ def run_pandoc_check(
     result = analyse_pandoc_output(combined_output)
     result.raw_output = combined_output
     return result
+
+
+# ---------------------------------------------------------------------------
+# Generic tool check (dot / mmdc)
+# ---------------------------------------------------------------------------
+
+
+class ToolCheckStatus(Enum):
+    OK = auto()
+    NOT_FOUND = auto()
+    VERSION_TOO_OLD = auto()
+
+
+@dataclass
+class ToolCheckResult:
+    status: ToolCheckStatus
+    version: str | None = None
+    error_message: str | None = None
+
+
+def _extract_dot_version(output: str) -> str | None:
+    """Extract the version number from `dot --version` output.
+
+    Expected format: "dot - graphviz version 14.1.1 (20251213.1925)"
+    """
+    for line in output.splitlines():
+        m = re.search(r"graphviz version\s+(\S+)", line, re.IGNORECASE)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _extract_mmdc_version(output: str) -> str | None:
+    """Extract the version number from `mmdc --version` output.
+
+    Expected format: "11.12.0"
+    """
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped and re.match(r"\d+\.\d+", stripped):
+            return stripped
+    return None
+
+
+def analyse_dot_output(output: str) -> ToolCheckResult:
+    """Analyse the output of `dot --version` and determine compatibility."""
+    version = _extract_dot_version(output)
+    if version is None:
+        return ToolCheckResult(
+            status=ToolCheckStatus.VERSION_TOO_OLD,
+            version=None,
+            error_message="Could not determine dot (Graphviz) version from output.",
+        )
+    if _version_less_than(version, MIN_DOT_VERSION):
+        return ToolCheckResult(
+            status=ToolCheckStatus.VERSION_TOO_OLD,
+            version=version,
+            error_message=f"dot version {version} is below the minimum required {MIN_DOT_VERSION}.",
+        )
+    return ToolCheckResult(status=ToolCheckStatus.OK, version=version)
+
+
+def run_dot_check(runner: Runner | None = None, bin: str = "dot") -> ToolCheckResult:
+    """Run `<bin> --version` and evaluate whether it satisfies pandocster requirements."""
+    actual_runner = runner or _default_runner
+    try:
+        completed = actual_runner([bin, "--version"])
+    except FileNotFoundError:
+        return ToolCheckResult(
+            status=ToolCheckStatus.NOT_FOUND,
+            error_message=f"{bin!r} executable not found in PATH.",
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        return ToolCheckResult(
+            status=ToolCheckStatus.NOT_FOUND,
+            error_message=str(exc),
+        )
+    combined_output = (completed.stdout or "") + (completed.stderr or "")
+    return analyse_dot_output(combined_output)
+
+
+def analyse_mmdc_output(output: str) -> ToolCheckResult:
+    """Analyse the output of `mmdc --version` and determine compatibility."""
+    version = _extract_mmdc_version(output)
+    if version is None:
+        return ToolCheckResult(
+            status=ToolCheckStatus.VERSION_TOO_OLD,
+            version=None,
+            error_message="Could not determine mmdc version from output.",
+        )
+    if _version_less_than(version, MIN_MMDC_VERSION):
+        return ToolCheckResult(
+            status=ToolCheckStatus.VERSION_TOO_OLD,
+            version=version,
+            error_message=f"mmdc version {version} is below the minimum required {MIN_MMDC_VERSION}.",
+        )
+    return ToolCheckResult(status=ToolCheckStatus.OK, version=version)
+
+
+def run_mmdc_check(runner: Runner | None = None, bin: str = "mmdc") -> ToolCheckResult:
+    """Run `<bin> --version` and evaluate whether it satisfies pandocster requirements."""
+    actual_runner = runner or _default_runner
+    try:
+        completed = actual_runner([bin, "--version"])
+    except FileNotFoundError:
+        return ToolCheckResult(
+            status=ToolCheckStatus.NOT_FOUND,
+            error_message=f"{bin!r} executable not found in PATH.",
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        return ToolCheckResult(
+            status=ToolCheckStatus.NOT_FOUND,
+            error_message=str(exc),
+        )
+    combined_output = (completed.stdout or "") + (completed.stderr or "")
+    return analyse_mmdc_output(combined_output)
 

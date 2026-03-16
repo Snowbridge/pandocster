@@ -54,11 +54,47 @@ And there are more ways to install, please refer to official documentation [http
 ## Commands
 
 
-| Command                                        | Description                                      |
-| ---------------------------------------------- | ------------------------------------------------ |
-| `pandocster check`                             | Verify pandoc and Lua versions                   |
-| `pandocster build <src> [build] --to <format>` | Prepare and render a document (e.g. `--to pdf`)  |
-| `pandocster config show`                       | Print effective config as YAML                   |
-| `pandocster config create`                     | Write `pandocster.yaml` in the current directory |
+| Command                                         | Description                                     |
+| ----------------------------------------------- | ----------------------------------------------- |
+| `pandocster check`                              | Verify pandoc and Lua versions                  |
+| `pandocster build <src> [build] --to <format>`  | Prepare and render a document (e.g. `--to pdf`) |
+| `pandocster config show`                        | Print effective config as YAML                  |
+| `pandocster config create [--global] [--force]` | Write config file locally or globally           |
 
+
+## Development
+
+### 1. Create and activate a virtual environment
+
+```bash
+python -m venv .venv
+source .venv/Scripts/activate   # Windows (Git Bash)
+source .venv/bin/activate     # macOS / Linux
+```
+
+### 2. Install the project in editable mode with dev dependencies
+
+```bash
+pip install -e ".[dev]"
+```
+
+The `-e` flag makes changes in `src/` immediately available without reinstalling.
+
+### 3. Run the test suite
+
+```bash
+pytest
+```
+
+### 4. Verify the CLI works
+
+```bash
+pandocster --help
+pandocster check
+pandocster config show
+pandocster config create
+pandocster config create --force          # overwrite without prompting
+pandocster config create --global         # write ~/.config/pandocster/config.yaml
+pandocster config create --global --force # overwrite global config
+```
 

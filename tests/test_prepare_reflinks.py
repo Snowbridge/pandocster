@@ -1,24 +1,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
-from service.commands.prepare import find_root_level, run_prepare
-
-
-def _write(file: Path, content: str) -> None:
-    file.parent.mkdir(parents=True, exist_ok=True)
-    file.write_text(content, encoding="utf-8")
+from service.commands.prepare import run_prepare
 
 
-def test_run_prepare_collects_md_reflinks_into_999_file(tmp_path: Path) -> None:
+def test_run_prepare_collects_md_reflinks_into_999_file(
+    tmp_path: Path, write_file: Callable
+) -> None:
     src = tmp_path / "src"
     build = tmp_path / "build"
 
-    # Layout similar to real project: md tree grouped under md/.
-    _write(src / "md" / "01-one" / "_index.md", "# One\n")
-    _write(src / "md" / "01-one" / "two.md", "# Two\n")
+    write_file(src / "md" / "01-one" / "_index.md", "# One\n")
+    write_file(src / "md" / "01-one" / "two.md", "# Two\n")
 
-    _write(
+    write_file(
         src / "md" / "02-section" / "ref.md",
         "See [Two][two]\n\n"
         "[two]: ../01-one/two.md\n"

@@ -1,17 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from click.testing import CliRunner
 
 from cli.entrypoint import main
 from service.commands.build import BuildError, run_build
-
-
-def _write(file: Path, content: str) -> None:
-    file.parent.mkdir(parents=True, exist_ok=True)
-    file.write_text(content, encoding="utf-8")
 
 
 def _completed(args: Any, returncode: int = 0) -> Any:
@@ -26,14 +21,14 @@ def _completed(args: Any, returncode: int = 0) -> Any:
 
 
 def test_run_build_invokes_pandoc_with_expected_args(
-    tmp_path: Path, monkeypatch: object
+    tmp_path: Path, monkeypatch: object, write_file: Callable
 ) -> None:
     monkeypatch.chdir(tmp_path)
     src = tmp_path / "src"
     build = tmp_path / "build"
 
-    _write(src / "md" / "01-one" / "_index.md", "# One\n")
-    _write(src / "md" / "01-one" / "chapter1.md", "# Chapter 1\n")
+    write_file(src / "md" / "01-one" / "_index.md", "# One\n")
+    write_file(src / "md" / "01-one" / "chapter1.md", "# Chapter 1\n")
 
     # Create a dummy resources directory that prepare would normally create.
     (build / "resources").mkdir(parents=True, exist_ok=True)
@@ -78,9 +73,11 @@ def test_run_build_invokes_pandoc_with_expected_args(
     ]
 
 
-def test_run_build_raises_when_src_equals_build(tmp_path: Path) -> None:
+def test_run_build_raises_when_src_equals_build(
+    tmp_path: Path, write_file: Callable
+) -> None:
     src = tmp_path / "tree"
-    _write(src / "doc.md", "# Doc\n")
+    write_file(src / "doc.md", "# Doc\n")
 
     try:
         run_build(
@@ -96,11 +93,13 @@ def test_run_build_raises_when_src_equals_build(tmp_path: Path) -> None:
         assert False, "Expected BuildError to be raised"
 
 
-def test_run_build_removes_build_when_not_preserved(tmp_path: Path) -> None:
+def test_run_build_removes_build_when_not_preserved(
+    tmp_path: Path, write_file: Callable
+) -> None:
     src = tmp_path / "src"
     build = tmp_path / "build"
 
-    _write(src / "md" / "_index.md", "# One\n")
+    write_file(src / "md" / "_index.md", "# One\n")
     (build / "resources").mkdir(parents=True, exist_ok=True)
 
     def runner(args: Any) -> Any:
@@ -118,12 +117,14 @@ def test_run_build_removes_build_when_not_preserved(tmp_path: Path) -> None:
     assert not build.exists()
 
 
-def test_cli_build_smoke(tmp_path: Path, monkeypatch: object) -> None:
+def test_cli_build_smoke(
+    tmp_path: Path, monkeypatch: object, write_file: Callable
+) -> None:
     monkeypatch.chdir(tmp_path)
     src = tmp_path / "src"
     build = tmp_path / "build"
 
-    _write(src / "md" / "_index.md", "# One\n")
+    write_file(src / "md" / "_index.md", "# One\n")
 
     runner = CliRunner()
     result = runner.invoke(
