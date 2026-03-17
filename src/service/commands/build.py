@@ -88,10 +88,14 @@ def run_build(
     to_format: str,
     file_name: str | None,
     preserve_build: bool,
+    prepared: bool = False,
     runner: Runner | None = None,
     config: AppConfig | None = None,
 ) -> Path:
     """Run prepare and then invoke pandoc to build the final document.
+
+    When prepared is True, the prepare step is skipped and src is used directly
+    as the already-prepared build directory.
 
     Returns the path to the generated output file.
     """
@@ -101,10 +105,11 @@ def run_build(
     if src == build:
         raise BuildError("Source and build directories must not be the same.")
 
-    try:
-        run_prepare(src, build, cfg)
-    except PrepareError as exc:
-        raise BuildError(str(exc)) from exc
+    if not prepared:
+        try:
+            run_prepare(src, build, cfg)
+        except PrepareError as exc:
+            raise BuildError(str(exc)) from exc
 
     md_files = _iter_markdown_files(build)
     if not md_files:

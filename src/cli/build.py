@@ -118,12 +118,19 @@ _TO_CHOICES = [
     default=False,
     help="Preserve build directory after pandoc run.",
 )
+@click.option(
+    "--prepared",
+    is_flag=True,
+    default=False,
+    help="Skip the prepare step; treat src as an already-prepared build directory.",
+)
 def build_command(
     src: str,
     build: str,
     to_format: str,
     file_name: str | None,
     preserve_build: bool,
+    prepared: bool,
 ) -> NoReturn:
     """Prepare a build directory and render a document via pandoc."""
     src_path = Path(src).expanduser().resolve()
@@ -137,6 +144,7 @@ def build_command(
             to_format=to_format,
             file_name=file_name,
             preserve_build=preserve_build,
+            prepared=prepared,
             config=config,
         )
     except (PrepareError, BuildError) as exc:

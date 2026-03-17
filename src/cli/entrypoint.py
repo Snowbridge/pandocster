@@ -53,6 +53,11 @@ try:  # pragma: no cover - thin wiring
 except ImportError:  # pragma: no cover - defensive
     _config_command = None
 
+try:  # pragma: no cover - thin wiring
+    from . import init_cmd as _init_command  # noqa: F401
+except ImportError:  # pragma: no cover - defensive
+    _init_command = None
+
 
 if __name__ == "__main__":
     main()
