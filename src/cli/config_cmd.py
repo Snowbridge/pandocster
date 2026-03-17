@@ -16,7 +16,44 @@ from .entrypoint import main
 
 @main.group("config")
 def config_group() -> None:
-    """View or create pandocster configuration."""
+    """View or create pandocster configuration.
+
+    Config is loaded in priority order:
+
+    \b
+      1. pandocster.yaml in the current directory
+      2. ~/.config/pandocster/config.yaml (global)
+      3. Built-in defaults (shown below)
+
+    Use 'pandocster config show' to inspect the effective config and
+    'pandocster config create' to write it as a file you can then edit.
+
+    \b
+    DEFAULT PANDOC OPTIONS
+      --toc=true              Include a table of contents.
+      --toc-depth=3           Maximum heading level shown in the TOC.
+      --standalone=true       Produce a standalone document (with header/footer).
+      --embed-resources=true  Embed all external resources (images, CSS) inline.
+
+    \b
+    DEFAULT METADATA
+      lang: ru                Document language (affects hyphenation, TOC heading).
+      toc-title: Оглавление   Heading text used for the table of contents.
+
+    \b
+    DEFAULT LUA FILTERS (applied in order)
+      header_offset           Adjusts heading levels based on directory depth.
+      link_anchors            Rewrites cross-file anchor links for the merged doc.
+      absorb_nonvisual_paragraphs  Removes invisible/non-visual paragraphs.
+      newpage                 Inserts page breaks at section boundaries.
+
+    \b
+    DIAGRAM TOOLS (auto-detected at startup)
+      mmdc (Mermaid CLI)      Converts ```mermaid fenced blocks to images.
+                              Enabled automatically when 'mmdc' is on PATH.
+      graphviz (dot)          Converts ```graphviz / ```graphiz fenced blocks.
+                              Enabled automatically when 'dot' is on PATH.
+    """
 
 
 @config_group.command("show")
