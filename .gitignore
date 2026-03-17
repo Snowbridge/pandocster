@@ -30,3 +30,7 @@ Thumbs.db
 
 data
 pandocster.yaml
+
+.coverage
+.coverage.*
+htmlcov/
