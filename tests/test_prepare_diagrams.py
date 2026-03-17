@@ -50,7 +50,7 @@ def test_mermaid_block_replaced_with_svg_image(
 
     content = (build / "doc.md").read_text(encoding="utf-8")
     assert "```mermaid" not in content
-    assert re.search(r"!\[\]\(resources/[0-9a-f-]+\.svg\)", content)
+    assert re.search(r"!\[\]\([0-9a-f-]+\.svg\)", content)
 
 
 def test_mermaid_block_passes_correct_cli_args(
@@ -129,7 +129,7 @@ def test_graphviz_block_replaced_with_svg_image(
 
     content = (build / "doc.md").read_text(encoding="utf-8")
     assert "```graphviz" not in content
-    assert re.search(r"!\[\]\(resources/[0-9a-f-]+\.svg\)", content)
+    assert re.search(r"!\[\]\([0-9a-f-]+\.svg\)", content)
 
 
 def test_graphviz_block_passes_correct_cli_args(
@@ -208,7 +208,7 @@ def test_graphiz_typo_fence_also_converted(
 
     content = (build / "doc.md").read_text(encoding="utf-8")
     assert "```graphiz" not in content
-    assert re.search(r"!\[\]\(resources/[0-9a-f-]+\.svg\)", content)
+    assert re.search(r"!\[\]\([0-9a-f-]+\.svg\)", content)
 
 
 # ---------------------------------------------------------------------------
@@ -229,8 +229,8 @@ def test_format_parameter_controls_mermaid_output_extension(
 
     content = (build / "doc.md").read_text(encoding="utf-8")
     assert "```mermaid" not in content
-    assert re.search(r"!\[\]\(resources/[0-9a-f-]+\.png\)", content)
-    assert not re.search(r"!\[\]\(resources/[0-9a-f-]+\.svg\)", content)
+    assert re.search(r"!\[\]\([0-9a-f-]+\.png\)", content)
+    assert not re.search(r"!\[\]\([0-9a-f-]+\.svg\)", content)
 
 
 def test_graphviz_format_passed_to_dot_T_flag(
