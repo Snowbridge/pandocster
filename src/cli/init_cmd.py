@@ -9,10 +9,12 @@ import click
 
 from service.commands.init import InitError, run_init
 
-from .entrypoint import main
+from .entrypoint import LOG_OPTION, ensure_log_session, main
 
 
 @main.command("init")
+@click.pass_context
+@LOG_OPTION
 @click.argument("dir", type=str, required=False, default=".")
 @click.option(
     "--force",
@@ -20,7 +22,7 @@ from .entrypoint import main
     default=False,
     help="Initialize even if the directory is not empty.",
 )
-def init_command(dir: str, force: bool) -> NoReturn:
+def init_command(ctx: click.Context, log: bool, dir: str, force: bool) -> NoReturn:
     """Prepare a directory for document development.
 
     Creates pandocster.yaml, src/md, src/assets, src/templates directories,
@@ -29,6 +31,9 @@ def init_command(dir: str, force: bool) -> NoReturn:
     DIR defaults to the current directory.
     """
     target_dir = Path(dir).expanduser().resolve()
+    log_enabled = log or ctx.obj.get("log")
+    ctx.obj["log"] = log_enabled
+    ensure_log_session(log_enabled)
 
     try:
         run_init(target_dir=target_dir, force=force)

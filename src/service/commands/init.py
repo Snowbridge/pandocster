@@ -7,6 +7,7 @@ from pathlib import Path
 import yaml
 
 from config import config_to_dict, load_config
+from service.command_log import log_file as command_log_file
 
 _GENERATE_SH_CONTENT = """\
 #!/usr/bin/env bash
@@ -42,6 +43,7 @@ def _create_config_file(target_dir: Path) -> None:
     config_path = target_dir / "pandocster.yaml"
     try:
         config_path.write_text(yaml_str, encoding="utf-8")
+        command_log_file(config_path, "created")
     except OSError as exc:
         raise InitError(f"Failed to write config file: {exc}") from exc
 
@@ -52,7 +54,9 @@ def _create_src_dirs(target_dir: Path) -> None:
         dir_path = target_dir / subdir
         try:
             dir_path.mkdir(parents=True, exist_ok=True)
-            (dir_path / ".gitkeep").touch()
+            gitkeep = dir_path / ".gitkeep"
+            gitkeep.touch()
+            command_log_file(gitkeep, "created")
         except OSError as exc:
             raise InitError(f"Failed to create directory '{dir_path}': {exc}") from exc
 
@@ -62,6 +66,7 @@ def _create_generate_script(target_dir: Path) -> None:
     script_path = target_dir / "generate.sh"
     try:
         script_path.write_text(_GENERATE_SH_CONTENT, encoding="utf-8")
+        command_log_file(script_path, "created")
     except OSError as exc:
         raise InitError(f"Failed to write generate.sh: {exc}") from exc
 

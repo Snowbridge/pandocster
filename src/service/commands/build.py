@@ -11,6 +11,7 @@ from typing import Any, Iterable
 import yaml
 
 from config.schema import AppConfig, PandocConfig, default_config
+from service.command_log import log_file as command_log_file
 from service.markdown_walker import walk_markdown_files
 from service.subprocess_runner import Runner, _default_runner
 
@@ -61,17 +62,20 @@ def _build_pandoc_args(
     resources_dir: Path,
     pandoc_config: PandocConfig,
     metadata_file_path: Path | None = None,
+    cwd: Path | None = None,
 ) -> list[str]:
     args: list[str] = [pandoc_config.bin]
     for path in md_files:
-        args.append(str(path))
+        rel = path.relative_to(cwd) if cwd is not None else path
+        args.append(str(rel))
     for opt in pandoc_config.options:
         args.append(f"--{opt.name}={_option_value_to_str(opt.value)}")
+    rel_resources = resources_dir.relative_to(cwd) if cwd is not None else resources_dir
     args.extend(
         [
             f"--output={output_path}",
             f"--to={to_format}",
-            f"--resource-path={resources_dir}",
+            f"--resource-path={rel_resources}",
         ],
     )
     if metadata_file_path is not None:
@@ -107,7 +111,7 @@ def run_build(
 
     if not prepared:
         try:
-            run_prepare(src, build, cfg)
+            run_prepare(src, build, cfg, runner=runner)
         except PrepareError as exc:
             raise BuildError(str(exc)) from exc
 
@@ -148,16 +152,15 @@ def run_build(
 
     try:
         pandoc_command = _build_pandoc_args(
-                md_files=md_files,
-                to_format=to_format,
-                output_path=output_path,
-                resources_dir=resources_dir,
-                pandoc_config=pandoc_cfg,
-                metadata_file_path=metadata_file_path,
-            )
-        completed = actual_runner(
-            pandoc_command,
+            md_files=md_files,
+            to_format=to_format,
+            output_path=output_path,
+            resources_dir=resources_dir,
+            pandoc_config=pandoc_cfg,
+            metadata_file_path=metadata_file_path,
+            cwd=build,
         )
+        completed = actual_runner(pandoc_command, cwd=build)
     except FileNotFoundError as exc:
         raise BuildError(f"Could not find the `pandoc` executable: {exc}") from exc
     except Exception as exc:  # pragma: no cover - defensive
@@ -175,6 +178,8 @@ def run_build(
             message = f"{message} Details: {details}"
         raise BuildError(message)
 
+    command_log_file(output_path, "created")
+
     if not preserve_build:
         try:
             shutil.rmtree(build)
@@ -182,4 +187,3 @@ def run_build(
             raise BuildError(f"Failed to remove build directory: {exc}") from exc
 
     return output_path
-

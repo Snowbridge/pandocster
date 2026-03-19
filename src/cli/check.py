@@ -7,6 +7,7 @@ from typing import NoReturn
 import click
 
 from config import load_config
+from service.command_log import make_logging_runner
 from service.commands.checks import (
     MIN_DOT_VERSION,
     MIN_LUA_VERSION,
@@ -20,7 +21,7 @@ from service.commands.checks import (
     run_pandoc_check,
 )
 
-from .entrypoint import main
+from .entrypoint import LOG_OPTION, ensure_log_session, main
 
 INSTALL_HELP = (
     "Pandocster requires pandoc >= {pandoc_min} with a built-in Lua scripting "
@@ -70,15 +71,21 @@ def _mmdc_warning(result: ToolCheckResult, bin: str = "mmdc") -> str | None:
 
 
 @main.command("check")
-def check_command() -> NoReturn:
+@click.pass_context
+@LOG_OPTION
+def check_command(ctx: click.Context, log: bool) -> NoReturn:
     """Verify that pandoc and its Lua engine satisfy pandocster requirements."""
     cfg = load_config()
     dot_bin = cfg.diagrams.graphviz.bin if cfg.diagrams and cfg.diagrams.graphviz else "dot"
     mmdc_bin = cfg.diagrams.mmdc.bin if cfg.diagrams and cfg.diagrams.mmdc else "mmdc"
+    log_enabled = log or ctx.obj.get("log")
+    ctx.obj["log"] = log_enabled
+    ensure_log_session(log_enabled)
+    runner = make_logging_runner() if log_enabled else None
 
-    pandoc_result = run_pandoc_check()
-    dot_result = run_dot_check(bin=dot_bin)
-    mmdc_result = run_mmdc_check(bin=mmdc_bin)
+    pandoc_result = run_pandoc_check(runner=runner)
+    dot_result = run_dot_check(runner=runner, bin=dot_bin)
+    mmdc_result = run_mmdc_check(runner=runner, bin=mmdc_bin)
 
     match pandoc_result.status:
         case PandocCheckStatus.OK:

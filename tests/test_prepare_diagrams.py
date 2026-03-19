@@ -5,13 +5,28 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
-from typing import Callable
-from unittest.mock import patch
+from typing import Callable, Sequence
 
 import pytest
 
 from config.schema import AppConfig, DiagramsConfig, DiagramToolConfig, PandocConfig
 from service.commands.prepare import PrepareError, run_prepare
+
+
+def _make_runner(
+    returncode: int = 0,
+    stdout: str = "",
+    stderr: str = "",
+    capture: list[list[str]] | None = None,
+):
+    """Create a fake Runner for testing."""
+
+    def _runner(args: Sequence[str], *, cwd: Path | None = None):
+        if capture is not None:
+            capture.append(list(args))
+        return subprocess.CompletedProcess(args=args, returncode=returncode, stdout=stdout, stderr=stderr)
+
+    return _runner
 
 
 def _cfg(
@@ -28,11 +43,6 @@ def _cfg(
     )
 
 
-def _ok_run(cmd, **kwargs):
-    """Fake subprocess.run that reports success without executing anything."""
-    return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-
 # ---------------------------------------------------------------------------
 # Mermaid
 # ---------------------------------------------------------------------------
@@ -45,8 +55,7 @@ def test_mermaid_block_replaced_with_svg_image(
     build = tmp_path / "build"
     write_file(src / "doc.md", "# Title\n\n```mermaid\nflowchart TD\n    A --> B\n```\n")
 
-    with patch("service.commands.prepare.subprocess.run", side_effect=_ok_run):
-        run_prepare(src, build, _cfg())
+    run_prepare(src, build, _cfg(), runner=_make_runner())
 
     content = (build / "doc.md").read_text(encoding="utf-8")
     assert "```mermaid" not in content
@@ -61,13 +70,7 @@ def test_mermaid_block_passes_correct_cli_args(
     write_file(src / "doc.md", "```mermaid\nflowchart TD\n    A --> B\n```\n")
 
     captured: list[list[str]] = []
-
-    def _capture(cmd, **kwargs):
-        captured.append(list(cmd))
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    with patch("service.commands.prepare.subprocess.run", side_effect=_capture):
-        run_prepare(src, build, _cfg())
+    run_prepare(src, build, _cfg(), runner=_make_runner(capture=captured))
 
     assert len(captured) == 1
     cmd = captured[0]
@@ -102,14 +105,8 @@ def test_mermaid_cli_failure_raises_prepare_error(
     build = tmp_path / "build"
     write_file(src / "doc.md", "```mermaid\nflowchart TD\n    A --> B\n```\n")
 
-    def _fail(cmd, **kwargs):
-        return subprocess.CompletedProcess(
-            args=cmd, returncode=1, stdout="", stderr="parse error"
-        )
-
-    with patch("service.commands.prepare.subprocess.run", side_effect=_fail):
-        with pytest.raises(PrepareError, match="mmdc failed"):
-            run_prepare(src, build, _cfg())
+    with pytest.raises(PrepareError, match="mmdc failed"):
+        run_prepare(src, build, _cfg(), runner=_make_runner(returncode=1, stderr="parse error"))
 
 
 # ---------------------------------------------------------------------------
@@ -124,8 +121,7 @@ def test_graphviz_block_replaced_with_svg_image(
     build = tmp_path / "build"
     write_file(src / "doc.md", "# Title\n\n```graphviz\ndigraph G { A -> B }\n```\n")
 
-    with patch("service.commands.prepare.subprocess.run", side_effect=_ok_run):
-        run_prepare(src, build, _cfg())
+    run_prepare(src, build, _cfg(), runner=_make_runner())
 
     content = (build / "doc.md").read_text(encoding="utf-8")
     assert "```graphviz" not in content
@@ -140,13 +136,7 @@ def test_graphviz_block_passes_correct_cli_args(
     write_file(src / "doc.md", "```graphviz\ndigraph G { A -> B }\n```\n")
 
     captured: list[list[str]] = []
-
-    def _capture(cmd, **kwargs):
-        captured.append(list(cmd))
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    with patch("service.commands.prepare.subprocess.run", side_effect=_capture):
-        run_prepare(src, build, _cfg())
+    run_prepare(src, build, _cfg(), runner=_make_runner(capture=captured))
 
     assert len(captured) == 1
     cmd = captured[0]
@@ -180,14 +170,8 @@ def test_graphviz_cli_failure_raises_prepare_error(
     build = tmp_path / "build"
     write_file(src / "doc.md", "```graphviz\ndigraph G { A -> B }\n```\n")
 
-    def _fail(cmd, **kwargs):
-        return subprocess.CompletedProcess(
-            args=cmd, returncode=1, stdout="", stderr="syntax error"
-        )
-
-    with patch("service.commands.prepare.subprocess.run", side_effect=_fail):
-        with pytest.raises(PrepareError, match="dot failed"):
-            run_prepare(src, build, _cfg())
+    with pytest.raises(PrepareError, match="dot failed"):
+        run_prepare(src, build, _cfg(), runner=_make_runner(returncode=1, stderr="syntax error"))
 
 
 # ---------------------------------------------------------------------------
@@ -203,8 +187,7 @@ def test_graphiz_typo_fence_also_converted(
     build = tmp_path / "build"
     write_file(src / "doc.md", "```graphiz\ndigraph G { A -> B }\n```\n")
 
-    with patch("service.commands.prepare.subprocess.run", side_effect=_ok_run):
-        run_prepare(src, build, _cfg(fmt="svg"))
+    run_prepare(src, build, _cfg(fmt="svg"), runner=_make_runner())
 
     content = (build / "doc.md").read_text(encoding="utf-8")
     assert "```graphiz" not in content
@@ -224,8 +207,7 @@ def test_format_parameter_controls_mermaid_output_extension(
     build = tmp_path / "build"
     write_file(src / "doc.md", "```mermaid\nflowchart TD\n    A --> B\n```\n")
 
-    with patch("service.commands.prepare.subprocess.run", side_effect=_ok_run):
-        run_prepare(src, build, _cfg(fmt="png"))
+    run_prepare(src, build, _cfg(fmt="png"), runner=_make_runner())
 
     content = (build / "doc.md").read_text(encoding="utf-8")
     assert "```mermaid" not in content
@@ -242,13 +224,7 @@ def test_graphviz_format_passed_to_dot_T_flag(
     write_file(src / "doc.md", "```graphviz\ndigraph G { A -> B }\n```\n")
 
     captured: list[list[str]] = []
-
-    def _capture(cmd, **kwargs):
-        captured.append(list(cmd))
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    with patch("service.commands.prepare.subprocess.run", side_effect=_capture):
-        run_prepare(src, build, _cfg(fmt="png"))
+    run_prepare(src, build, _cfg(fmt="png"), runner=_make_runner(capture=captured))
 
     cmd = captured[0]
     assert cmd[cmd.index("-T") + 1] == "png"

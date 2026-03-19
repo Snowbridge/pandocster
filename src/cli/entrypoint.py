@@ -3,15 +3,40 @@
 from __future__ import annotations
 
 import importlib.metadata
+import sys
+from pathlib import Path
 
 import click
 
+from service.command_log import log as command_log_log
+from service.command_log import start as command_log_start
+
 _VERSION = importlib.metadata.version("pandocster")
+
+LOG_OPTION = click.option(
+    "--log",
+    is_flag=True,
+    default=False,
+    help="Write a timestamped log file (command, file writes, subprocess output).",
+    hidden=True,
+)
+
+
+def ensure_log_session(log_enabled: bool) -> None:
+    """Start log session and record command if --log is enabled."""
+    if log_enabled:
+        from service.command_log import is_active
+
+        if not is_active():
+            command_log_start(Path.cwd())
+            command_log_log(" ".join(sys.argv))
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option(_VERSION, "-v", "--version", prog_name="pandocster")
-def main() -> None:
+@LOG_OPTION
+@click.pass_context
+def main(ctx: click.Context, log: bool) -> None:
     """Pandocster — assembles a single document from a Markdown file tree.
 
     Takes a directory of Markdown files (optionally nested in subdirectories),
@@ -30,6 +55,9 @@ def main() -> None:
     then ~/.config/pandocster/config.yaml, then built-in defaults.
     Use 'pandocster config create' to generate a starter config file.
     """
+    ctx.obj = {"log": log}
+    if log:
+        ensure_log_session(log)
 
 
 # Import command modules to register the subcommands

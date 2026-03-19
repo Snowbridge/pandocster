@@ -35,7 +35,7 @@ def test_run_build_invokes_pandoc_with_expected_args(
 
     captured_args: Any = None
 
-    def runner(args: Any) -> Any:
+    def runner(args: Any, *, cwd: Any = None) -> Any:
         nonlocal captured_args
         captured_args = list(args)
         return _completed(args)
@@ -102,7 +102,7 @@ def test_run_build_removes_build_when_not_preserved(
     write_file(src / "md" / "_index.md", "# One\n")
     (build / "resources").mkdir(parents=True, exist_ok=True)
 
-    def runner(args: Any) -> Any:
+    def runner(args: Any, *, cwd: Any = None) -> Any:
         return _completed(args)
 
     run_build(
@@ -144,4 +144,3 @@ def test_cli_build_smoke(
     # We cannot guarantee pandoc is installed in the test environment,
     # but the command must produce some output (either success or error).
     assert result.output.strip() != ""
-

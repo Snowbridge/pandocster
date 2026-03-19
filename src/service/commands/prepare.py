@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 import uuid
 from dataclasses import dataclass
@@ -14,8 +13,9 @@ from typing import Iterable, Iterator
 
 from config.schema import AppConfig, DiagramToolConfig
 
+from service.command_log import log_file as command_log_file
 from service.markdown_walker import walk_markdown_files
-from service.subprocess_runner import _SHELL
+from service.subprocess_runner import Runner, _default_runner
 
 
 class PrepareError(RuntimeError):
@@ -37,7 +37,12 @@ class ReflinkDefinition:
     label: str
     anchor: str
 
-def run_prepare(src: Path, build: Path, cfg: AppConfig | None = None) -> None:
+def run_prepare(
+    src: Path,
+    build: Path,
+    cfg: AppConfig | None = None,
+    runner: Runner | None = None,
+) -> None:
     """Orchestrate the prepare operation."""
     from config import default_config
 
@@ -93,7 +98,10 @@ def run_prepare(src: Path, build: Path, cfg: AppConfig | None = None) -> None:
             if line == "```mermaid" and mermaid_is_enabled:
                 new_content.append(
                     _generate_mermaid(
-                        _collect_fenced_block(lines_iter), resources_dir, diagrams.mmdc
+                        _collect_fenced_block(lines_iter),
+                        resources_dir,
+                        diagrams.mmdc,
+                        runner,
                     )
                 )
                 continue
@@ -101,7 +109,10 @@ def run_prepare(src: Path, build: Path, cfg: AppConfig | None = None) -> None:
             if line in ("```graphviz", "```graphiz") and graphviz_is_enabled:
                 new_content.append(
                     _generate_graphviz(
-                        _collect_fenced_block(lines_iter), resources_dir, diagrams.graphviz
+                        _collect_fenced_block(lines_iter),
+                        resources_dir,
+                        diagrams.graphviz,
+                        runner,
                     )
                 )
                 continue
@@ -113,6 +124,7 @@ def run_prepare(src: Path, build: Path, cfg: AppConfig | None = None) -> None:
 
         try:
             path.write_text("\n".join(new_content), encoding="utf-8")
+            command_log_file(path, "modified")
         except OSError as exc:
             raise PrepareError(f"Failed to write markdown file {path}: {exc}") from exc
 
@@ -205,6 +217,7 @@ def copy_src_to_build(src: Path, build: Path) -> None:
                 src_file = root_path / filename
                 dest_file = dest_root / filename
                 shutil.copy2(src_file, dest_file)
+                command_log_file(dest_file, "created")
     except OSError as exc:
         raise PrepareError(f"Failed to copy files from src to build: {exc}") from exc
 
@@ -300,7 +313,9 @@ def _process_image_line(line: str, path: Path, resources_dir: Path) -> str:
         dest = resources_dir / relative_to_root
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
+            existed = dest.exists()
             shutil.copy2(image_path, dest)
+            command_log_file(dest, "modified" if existed else "created")
         except OSError as exc:
             raise PrepareError(
                 f"Failed to copy image {image_path} to resources: {exc}",
@@ -325,6 +340,7 @@ def _generate_mermaid(
     lines: list[str],
     resources_dir: Path,
     cfg: DiagramToolConfig,
+    runner: Runner | None = None,
 ) -> str:
     """Convert a Mermaid diagram block to SVG via the mmdc CLI and return a Markdown image line."""
     if not cfg.enabled:
@@ -354,8 +370,9 @@ def _generate_mermaid(
         else:
             cmd.append(f"--{opt.name}")
 
+    actual_runner = runner or _default_runner
     try:
-        result = subprocess.run(cmd, check=False, capture_output=True, text=True, shell=_SHELL)
+        result = actual_runner(cmd)
         if result.returncode != 0:
             raise PrepareError(f"mmdc failed (exit {result.returncode}): {result.stderr}")
     finally:
@@ -368,6 +385,7 @@ def _generate_graphviz(
     lines: list[str],
     resources_dir: Path,
     cfg: DiagramToolConfig,
+    runner: Runner | None = None,
 ) -> str:
     """Convert a Graphviz diagram block to SVG via the dot CLI and return a Markdown image line."""
     if not cfg.enabled:
@@ -387,8 +405,9 @@ def _generate_graphviz(
 
     cmd: list[str] = [cfg.bin, "-T", f"{format}", "-o", str(output_path), str(tmp_path)]
 
+    actual_runner = runner or _default_runner
     try:
-        result = subprocess.run(cmd, check=False, capture_output=True, text=True, shell=_SHELL)
+        result = actual_runner(cmd)
         if result.returncode != 0:
             raise PrepareError(f"dot failed (exit {result.returncode}): {result.stderr}")
     finally:
@@ -493,8 +512,10 @@ def _write_reflinks_file(
         lines_out.append(f"[{reflink.label}]: #{reflink.anchor}")
 
     content = "\n".join(lines_out) + "\n"
+    existed = target.exists()
 
     try:
         target.write_text(content, encoding="utf-8")
+        command_log_file(target, "modified" if existed else "created")
     except OSError as exc:
         raise PrepareError(f"Failed to write reflinks file {target}: {exc}") from exc

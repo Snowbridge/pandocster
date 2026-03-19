@@ -8,10 +8,11 @@ from typing import NoReturn
 import click
 
 from config.load import load_config
+from service.command_log import make_logging_runner
 from service.commands.build import BuildError, run_build
 from service.commands.prepare import PrepareError
 
-from .entrypoint import main
+from .entrypoint import LOG_OPTION, ensure_log_session, main
 
 _TO_CHOICES = [
     "ansi",
@@ -93,6 +94,8 @@ _TO_CHOICES = [
 
 
 @main.command("build")
+@click.pass_context
+@LOG_OPTION
 @click.argument("src", type=str, required=True)
 @click.argument("build", type=str, required=False, default="./build")
 @click.option(
@@ -125,6 +128,8 @@ _TO_CHOICES = [
     help="Skip the prepare step; treat src as an already-prepared build directory.",
 )
 def build_command(
+    ctx: click.Context,
+    log: bool,
     src: str,
     build: str,
     to_format: str,
@@ -136,6 +141,10 @@ def build_command(
     src_path = Path(src).expanduser().resolve()
     build_path = Path(build).expanduser().resolve()
     config = load_config(Path.cwd())
+    log_enabled = log or ctx.obj.get("log")
+    ctx.obj["log"] = log_enabled
+    ensure_log_session(log_enabled)
+    runner = make_logging_runner() if log_enabled else None
 
     try:
         output_path = run_build(
@@ -145,6 +154,7 @@ def build_command(
             file_name=file_name,
             preserve_build=preserve_build,
             prepared=prepared,
+            runner=runner,
             config=config,
         )
     except (PrepareError, BuildError) as exc:

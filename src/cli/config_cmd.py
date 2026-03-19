@@ -10,8 +10,9 @@ import yaml
 
 from config import ConfigError, config_to_dict, load_config
 from config.load import GLOBAL_CONFIG_PATH
+from service.command_log import log_file as command_log_file
 
-from .entrypoint import main
+from .entrypoint import LOG_OPTION, ensure_log_session, main
 
 
 @main.group("config")
@@ -57,8 +58,13 @@ def config_group() -> None:
 
 
 @config_group.command("show")
-def config_show() -> NoReturn:
+@click.pass_context
+@LOG_OPTION
+def config_show(ctx: click.Context, log: bool) -> NoReturn:
     """Print current app config (local/global file or defaults) as YAML."""
+    log_enabled = log or ctx.obj.get("log")
+    ctx.obj["log"] = log_enabled
+    ensure_log_session(log_enabled)
     try:
         cfg = load_config()
     except ConfigError as exc:
@@ -71,6 +77,8 @@ def config_show() -> NoReturn:
 
 
 @config_group.command("create")
+@click.pass_context
+@LOG_OPTION
 @click.option(
     "-g",
     "--global",
@@ -85,8 +93,13 @@ def config_show() -> NoReturn:
     default=False,
     help="Overwrite an existing config file without prompting.",
 )
-def config_create(use_global: bool, force: bool) -> NoReturn:
+def config_create(
+    ctx: click.Context, log: bool, use_global: bool, force: bool
+) -> NoReturn:
     """Write config file in current directory (or globally with --global)."""
+    log_enabled = log or ctx.obj.get("log")
+    ctx.obj["log"] = log_enabled
+    ensure_log_session(log_enabled)
     try:
         cfg = load_config()
     except ConfigError as exc:
@@ -102,11 +115,13 @@ def config_create(use_global: bool, force: bool) -> NoReturn:
     if use_global:
         path.parent.mkdir(parents=True, exist_ok=True)
     data = config_to_dict(cfg)
+    existed = path.exists()
     try:
         yaml_str = yaml.dump(
             data, allow_unicode=True, default_flow_style=False, sort_keys=False
         )
         path.write_text(yaml_str, encoding="utf-8")
+        command_log_file(path, "modified" if existed else "created")
     except OSError as exc:
         click.echo(f"Failed to write {path}: {exc}", err=True)
         raise SystemExit(1) from exc
