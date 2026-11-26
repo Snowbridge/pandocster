@@ -9,10 +9,11 @@ import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Any, Iterable, Iterator
+
+import yaml
 
 from config.schema import AppConfig, DiagramToolConfig
-
 from service.command_log import log_file as command_log_file
 from service.markdown_walker import walk_markdown_files
 from service.subprocess_runner import Runner, _default_runner
@@ -63,6 +64,7 @@ def run_prepare(
 
     root_level = find_root_level(build_resolved)
     reflinks: list[ReflinkDefinition] = []
+    variables = _cfg.variables or {}
 
     for md_file in iter_markdown_files(root_level):
         path = md_file.path
@@ -88,14 +90,24 @@ def run_prepare(
             anchor_line,
         ]
 
+        in_fence = False
         lines_iter = iter(lines_list)
-        for line in lines_iter:
+        for line_number, line in enumerate(lines_iter, start=1):
+            line, in_fence = _substitute_variables(
+                line,
+                variables,
+                path=path,
+                line_number=line_number,
+                in_fence=in_fence,
+            )
             reflink = _match_reflink(line, path, root_level)
             if reflink is not None:
                 reflinks.append(reflink)
                 continue
 
             if line == "```mermaid" and mermaid_is_enabled:
+                if diagrams is None or diagrams.mmdc is None:
+                    raise PrepareError("Mermaid is enabled but not configured.")
                 new_content.append(
                     _generate_mermaid(
                         _collect_fenced_block(lines_iter),
@@ -107,6 +119,8 @@ def run_prepare(
                 continue
 
             if line in ("```graphviz", "```graphiz") and graphviz_is_enabled:
+                if diagrams is None or diagrams.graphviz is None:
+                    raise PrepareError("Graphviz is enabled but not configured.")
                 new_content.append(
                     _generate_graphviz(
                         _collect_fenced_block(lines_iter),
@@ -257,6 +271,115 @@ def iter_markdown_files(root_level: Path) -> Iterator[MarkdownFile]:
 
 _REFLINK_PATTERN = re.compile(r"""^\s*\[([^\]]+)\]:\s+(.+)$""")
 _IMAGE_PATTERN = re.compile(r"""!\[([^\]]*)\]\(([^)]+)\)""")
+_FENCE_PATTERN = re.compile(r"""^ {0,3}(`{3,}|~{3,})""")
+_PLACEHOLDER_PATTERN = re.compile(
+    r"""\\\{\{[ \t]*[A-Za-z0-9_]+[ \t]*\}\}|\{\{[ \t]*([A-Za-z0-9_]+)[ \t]*\}\}"""
+)
+
+
+def _render_variable_value(value: Any) -> str:
+    """Render a YAML variable value as literal text."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (str, int, float)):
+        return str(value)
+    rendered = yaml.safe_dump(
+        value,
+        allow_unicode=True,
+        sort_keys=False,
+        default_flow_style=False,
+    )
+    if not isinstance(rendered, str):
+        raise PrepareError(f"Failed to render variable value: {value!r}")
+    return rendered.removesuffix("\n...\n").removesuffix("\n")
+
+
+def _replace_placeholders(
+    text: str,
+    variables: dict[str, Any],
+    *,
+    path: Path,
+    line_number: int,
+) -> str:
+    """Replace {{name}} outside code. A leading backslash keeps the token."""
+
+    def _replace(match: re.Match[str]) -> str:
+        if match.group(0).startswith("\\"):
+            return match.group(0)
+        name = match.group(1)
+        if name not in variables:
+            raise PrepareError(
+                f"Unknown variable '{name}' in {path}:{line_number}"
+            )
+        return _render_variable_value(variables[name])
+
+    return _PLACEHOLDER_PATTERN.sub(_replace, text)
+
+
+def _substitute_inline_spans(
+    line: str,
+    variables: dict[str, Any],
+    *,
+    path: Path,
+    line_number: int,
+) -> str:
+    """Substitute placeholders in one line, skipping inline code spans."""
+    parts: list[str] = []
+    cursor = 0
+    in_code = False
+    index = 0
+    while index < len(line):
+        if line[index] == "`" and (index == 0 or line[index - 1] != "\\"):
+            segment = line[cursor:index]
+            if not in_code:
+                segment = _replace_placeholders(
+                    segment,
+                    variables,
+                    path=path,
+                    line_number=line_number,
+                )
+            parts.append(segment)
+            parts.append("`")
+            cursor = index + 1
+            in_code = not in_code
+        index += 1
+    tail = line[cursor:]
+    if not in_code:
+        tail = _replace_placeholders(
+            tail,
+            variables,
+            path=path,
+            line_number=line_number,
+        )
+    parts.append(tail)
+    return "".join(parts)
+
+
+def _substitute_variables(
+    line: str,
+    variables: dict[str, Any],
+    *,
+    path: Path,
+    line_number: int,
+    in_fence: bool,
+) -> tuple[str, bool]:
+    """Substitute placeholders in one line and report the fence state after it."""
+    fence = _FENCE_PATTERN.match(line)
+    if fence is not None:
+        return line, not in_fence
+    if in_fence:
+        return line, in_fence
+    return (
+        _substitute_inline_spans(
+            line,
+            variables,
+            path=path,
+            line_number=line_number,
+        ),
+        in_fence,
+    )
 
 
 def _normalize_link_token(target: str) -> str:

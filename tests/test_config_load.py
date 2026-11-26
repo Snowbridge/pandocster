@@ -163,3 +163,82 @@ pandocster:
     assert cfg.diagrams.mmdc.format == "png"
     assert cfg.diagrams.graphviz is not None
     assert cfg.diagrams.graphviz.format == "png"
+
+
+def test_load_config_reads_variables(tmp_path: Path) -> None:
+    """variables keeps scalars and nested YAML values as parsed."""
+    yaml_content = """\
+pandocster:
+  variables:
+    product: Pandocster
+    year: 2026
+    draft: true
+    authors:
+      - Анна
+      - Борис
+    meta:
+      lang: ru
+"""
+    (tmp_path / "pandocster.yaml").write_text(yaml_content, encoding="utf-8")
+
+    from config.load import load_config
+
+    cfg = load_config(cwd=tmp_path)
+    assert cfg.variables == {
+        "product": "Pandocster",
+        "year": 2026,
+        "draft": True,
+        "authors": ["Анна", "Борис"],
+        "meta": {"lang": "ru"},
+    }
+
+
+def test_load_config_variables_absent_is_empty(tmp_path: Path) -> None:
+    (tmp_path / "pandocster.yaml").write_text("pandocster: {}\n", encoding="utf-8")
+
+    from config.load import load_config
+
+    cfg = load_config(cwd=tmp_path)
+    assert cfg.variables == {}
+
+
+def test_load_config_rejects_variables_list(tmp_path: Path) -> None:
+    (tmp_path / "pandocster.yaml").write_text(
+        "pandocster:\n  variables:\n    - product\n",
+        encoding="utf-8",
+    )
+
+    from config.load import load_config
+
+    with pytest.raises(ConfigError, match="variables"):
+        load_config(cwd=tmp_path)
+
+
+def test_load_config_rejects_variable_name_with_hyphen(tmp_path: Path) -> None:
+    (tmp_path / "pandocster.yaml").write_text(
+        "pandocster:\n  variables:\n    product-name: Pandocster\n",
+        encoding="utf-8",
+    )
+
+    from config.load import load_config
+
+    with pytest.raises(ConfigError, match="product-name"):
+        load_config(cwd=tmp_path)
+
+
+def test_config_to_dict_roundtrip_preserves_nested_variable() -> None:
+    cfg = AppConfig(
+        pandoc=PandocConfig(bin="pandoc", filters=[], metadata={}, options=[]),
+        variables={"meta": {"lang": "ru"}, "year": 2026},
+    )
+    dumped = config_to_dict(cfg)
+    assert dumped["pandocster"]["variables"]["meta"] == {"lang": "ru"}
+    assert dumped["pandocster"]["variables"]["year"] == 2026
+
+
+def test_config_to_dict_omits_empty_variables() -> None:
+    cfg = AppConfig(
+        pandoc=PandocConfig(bin="pandoc", filters=[], metadata={}, options=[]),
+        variables={},
+    )
+    assert "variables" not in config_to_dict(cfg)["pandocster"]

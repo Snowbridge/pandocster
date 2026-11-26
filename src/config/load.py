@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -10,8 +11,8 @@ import yaml
 from .schema import (
     AppConfig,
     DiagramOption,
-    DiagramToolConfig,
     DiagramsConfig,
+    DiagramToolConfig,
     PandocConfig,
     PandocOption,
     default_config,
@@ -134,6 +135,31 @@ def _parse_pandoc(raw: Any, defaults: PandocConfig) -> PandocConfig:
     )
 
 
+_VARIABLE_NAME = re.compile(r"[A-Za-z0-9_]+")
+
+
+def _parse_variables(raw: Any) -> dict[str, Any]:
+    """Parse the optional variables map. Values are kept as parsed YAML."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ConfigError(f"Expected 'variables' as dict, got {type(raw)}")
+    variables: dict[str, Any] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str):
+            raise ConfigError(
+                f"'variables' key must be a string, got {type(key).__name__}"
+            )
+        name = key.strip()
+        if _VARIABLE_NAME.fullmatch(name) is None:
+            raise ConfigError(
+                f"'variables.{key}' is not a valid name: "
+                "use letters, digits, and underscores"
+            )
+        variables[name] = value
+    return variables
+
+
 def _parse_app_config(raw: Any, defaults: AppConfig) -> AppConfig:
     if raw is None:
         return defaults
@@ -142,7 +168,11 @@ def _parse_app_config(raw: Any, defaults: AppConfig) -> AppConfig:
     pandoc_raw = raw.get("pandoc")
     pandoc = _parse_pandoc(pandoc_raw, defaults.pandoc)
     diagrams = _parse_diagrams(raw.get("diagrams"))
-    return AppConfig(pandoc=pandoc, diagrams=diagrams)
+    if "variables" in raw:
+        variables = _parse_variables(raw.get("variables"))
+    else:
+        variables = dict(defaults.variables or {})
+    return AppConfig(pandoc=pandoc, diagrams=diagrams, variables=variables)
 
 
 def _load_yaml(path: Path) -> Any:
@@ -175,6 +205,8 @@ def config_to_dict(cfg: AppConfig) -> dict[str, Any]:
         if cfg.diagrams.graphviz is not None:
             diagrams_data["graphviz"] = _diagram_tool_to_dict(cfg.diagrams.graphviz)
         root["diagrams"] = diagrams_data
+    if cfg.variables:
+        root["variables"] = dict(cfg.variables)
     return {ROOT_KEY: root}
 
 

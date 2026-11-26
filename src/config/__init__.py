@@ -6,8 +6,8 @@ from .load import ConfigError, config_to_dict, load_config
 from .schema import (
     AppConfig,
     DiagramOption,
-    DiagramToolConfig,
     DiagramsConfig,
+    DiagramToolConfig,
     PandocConfig,
     PandocOption,
     default_config,

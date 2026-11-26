@@ -68,10 +68,11 @@ class DiagramsConfig:
 
 @dataclass
 class AppConfig:
-    """Pandocster application config: pandoc settings."""
+    """Pandocster application config: pandoc settings and text variables."""
 
     pandoc: PandocConfig
     diagrams: DiagramsConfig | None = None
+    variables: dict[str, Any] | None = None
 
 
 def default_config(runner: Runner | None = None) -> AppConfig:
@@ -101,4 +102,5 @@ def default_config(runner: Runner | None = None) -> AppConfig:
             mmdc=DiagramToolConfig(enabled=mmdc_ok, bin="mmdc", options=[]),
             graphviz=DiagramToolConfig(enabled=dot_ok, bin="dot", options=[]),
         ),
+        variables={},
     )

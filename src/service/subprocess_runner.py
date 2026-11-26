@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import locale
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +25,19 @@ class Runner(Protocol):
 _SHELL = sys.platform == "win32"
 
 
+def _output_encoding() -> str:
+    """Encoding of captured console output.
+
+    Python's UTF-8 mode still decodes pipes as UTF-8. cmd.exe on a Russian
+    Windows install writes messages such as "'dot' не является..." in cp866,
+    and a strict UTF-8 decode then fails in the reader thread.
+    """
+    if sys.platform == "win32":
+        return "oem"
+    encoding = locale.getencoding()
+    return encoding or "utf-8"
+
+
 def _default_runner(
     args: Sequence[str],
     *,
@@ -34,6 +48,8 @@ def _default_runner(
         check=False,
         capture_output=True,
         text=True,
+        encoding=_output_encoding(),
+        errors="replace",
         shell=_SHELL,
         cwd=cwd,
     )
