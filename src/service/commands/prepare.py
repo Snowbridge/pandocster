@@ -9,11 +9,11 @@ import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
 import yaml
 
-from config.schema import AppConfig, DiagramToolConfig
+from config.schema import AppConfig, DiagramToolConfig, NumeratorConfig
 from service.command_log import log_file as command_log_file
 from service.markdown_walker import walk_markdown_files
 from service.subprocess_runner import Runner, _default_runner
@@ -37,6 +37,16 @@ class ReflinkDefinition:
 
     label: str
     anchor: str
+
+
+@dataclass
+class _PreparedMarkdown:
+    """One markdown file after variables and numerator generators are resolved."""
+
+    path: Path
+    header_offset: int
+    lines: list[str]
+
 
 def run_prepare(
     src: Path,
@@ -65,8 +75,10 @@ def run_prepare(
     root_level = find_root_level(build_resolved)
     reflinks: list[ReflinkDefinition] = []
     variables = _cfg.variables or {}
+    numerators = NumeratorEngine(_cfg.numerators or {})
 
-    for md_file in iter_markdown_files(root_level):
+    prepared: list[_PreparedMarkdown] = []
+    for md_file in iter_markdown_files_for_build(root_level):
         path = md_file.path
         current_level = md_file.current_level
 
@@ -76,26 +88,40 @@ def run_prepare(
             raise PrepareError(f"Failed to read markdown file {path}: {exc}") from exc
 
         level = _compute_header_level(path, current_level)
-        relative = path.relative_to(root_level)
-        file_anchor = "_".join(relative.parts)
-
-        header_line = f"<!-- @header-offset: {level} -->"
-        anchor_line = f'<!-- @anchor="{file_anchor}" -->'
-
         lines_list = (
             original_content.splitlines(keepends=False) if original_content else []
         )
-        new_content: list[str] = [
+        prepared.append(
+            _PreparedMarkdown(
+                path=path,
+                header_offset=level,
+                lines=_generate_numerator_lines(
+                    lines_list,
+                    variables,
+                    numerators,
+                    path=path,
+                    header_offset=level,
+                ),
+            )
+        )
+
+    new_content: list[str] = []
+    for prepared_file in prepared:
+        path = prepared_file.path
+        relative = path.relative_to(root_level)
+        file_anchor = "_".join(relative.parts)
+        header_line = f"<!-- @header-offset: {prepared_file.header_offset} -->"
+        anchor_line = f'<!-- @anchor="{file_anchor}" -->'
+        new_content = [
             header_line,
             anchor_line,
         ]
-
         in_fence = False
-        lines_iter = iter(lines_list)
+        lines_iter = iter(prepared_file.lines)
         for line_number, line in enumerate(lines_iter, start=1):
-            line, in_fence = _substitute_variables(
+            line, in_fence = _substitute_numerator_references(
                 line,
-                variables,
+                numerators,
                 path=path,
                 line_number=line_number,
                 in_fence=in_fence,
@@ -143,7 +169,6 @@ def run_prepare(
             raise PrepareError(f"Failed to write markdown file {path}: {exc}") from exc
 
     _write_reflinks_file(root_level, reflinks)
-
 
 
 def _validate_paths(src: Path, build: Path) -> None:
@@ -269,12 +294,255 @@ def iter_markdown_files(root_level: Path) -> Iterator[MarkdownFile]:
         yield MarkdownFile(path=path, current_level=current_level)
 
 
+def iter_markdown_files_for_build(root_level: Path) -> Iterator[MarkdownFile]:
+    """Yield markdown files in the order pandoc later concatenates them.
+
+    Within each directory ``_index.md`` comes first. ``999-reflinks.md`` is
+    skipped: it is generated after this pass and must not contain numerators.
+    """
+    files = list(iter_markdown_files(root_level))
+
+    def _sort_key(md_file: MarkdownFile) -> tuple[str, int, str]:
+        relative = md_file.path.relative_to(root_level)
+        parent = relative.parent.as_posix()
+        is_index = 0 if relative.name == "_index.md" else 1
+        return parent, is_index, relative.name
+
+    files.sort(key=_sort_key)
+    for md_file in files:
+        if md_file.path.name == "999-reflinks.md":
+            continue
+        yield md_file
+
+
 _REFLINK_PATTERN = re.compile(r"""^\s*\[([^\]]+)\]:\s+(.+)$""")
 _IMAGE_PATTERN = re.compile(r"""!\[([^\]]*)\]\(([^)]+)\)""")
 _FENCE_PATTERN = re.compile(r"""^ {0,3}(`{3,}|~{3,})""")
-_PLACEHOLDER_PATTERN = re.compile(
-    r"""\\\{\{[ \t]*[A-Za-z0-9_]+[ \t]*\}\}|\{\{[ \t]*([A-Za-z0-9_]+)[ \t]*\}\}"""
+_TOKEN_BODY = (
+    r"""(?:[A-Za-z0-9_]+"""
+    r"""|#\#?(?::[ \t]*[A-Za-z0-9_]*){0,2}"""
+    r"""|#\#?[ \t]*=:[ \t]*[A-Za-z0-9_]*:[ \t]*[A-Za-z0-9_]+)[ \t]*\}\}"""
 )
+_TOKEN_PATTERN = re.compile(
+    r"""\\\{\{[ \t]*"""
+    + _TOKEN_BODY
+    + r"""|\{\{[ \t]*(?:(?P<hashes>#\#?)"""
+    + r"""(?:[ \t]*(?P<reference>=):[ \t]*(?P<ref_name>[A-Za-z0-9_]*)"""
+    + r""":[ \t]*(?P<ref_id>[A-Za-z0-9_]+)"""
+    + r"""|(?::[ \t]*(?P<name>[A-Za-z0-9_]*))?"""
+    + r"""(?::[ \t]*(?P<value_id>[A-Za-z0-9_]*))?)"""
+    + r"""|(?P<variable>[A-Za-z0-9_]+))[ \t]*\}\}"""
+)
+_SETEXT_UNDERLINE = re.compile(r"""^ {0,3}(?:=+|-+)[ \t]*$""")
+_ATX_LEVEL = re.compile(r"""^ {0,3}(#{1,6})(?:[ \t]+|$)""")
+_BLANK_LINE = re.compile(r"""[ \t]*""")
+
+
+class NumeratorEngine:
+    """Cross-file numbering state for one prepare run."""
+
+    def __init__(self, configs: dict[str, NumeratorConfig]) -> None:
+        self._configs = configs
+        self._kinds: dict[str, bool] = {}
+        self._flat: dict[str, int] = {}
+        self._body: dict[tuple[str, tuple[int, ...]], int] = {}
+        self._values: dict[tuple[str, str], str] = {}
+        self._value_origins: dict[tuple[str, str], str] = {}
+        self._stacks: dict[str, list[_HierarchyFrame]] = {}
+        self._offset = 1
+        self._issued_in_heading: set[str] = set()
+
+    def begin_file(self, header_offset: int) -> None:
+        """Remember the offset Pandocster writes for the current file."""
+        self._offset = header_offset
+
+    def render(
+        self,
+        *,
+        hierarchical: bool,
+        name: str,
+        value_id: str | None,
+        heading_level: int | None,
+        path: Path,
+        line_number: int,
+    ) -> str:
+        """Return a newly allocated number. A repeated value id is an error."""
+        self._reject_mixed_kind(name, hierarchical, path, line_number)
+        if value_id:
+            key = (name, value_id)
+            origin = self._value_origins.get(key)
+            if origin is not None:
+                raise PrepareError(
+                    f"Numerator '{name}' value '{value_id}' is already generated "
+                    f"at {origin}; repeated generator in {path}:{line_number}"
+                )
+        if (
+            hierarchical
+            and heading_level is not None
+            and name in self._issued_in_heading
+        ):
+            return ""
+        rendered = (
+            self._render_hierarchical(name, heading_level)
+            if hierarchical
+            else self._render_flat(name)
+        )
+        if value_id:
+            key = (name, value_id)
+            self._values[key] = rendered
+            self._value_origins[key] = f"{path}:{line_number}"
+        if hierarchical and heading_level is not None:
+            self._issued_in_heading.add(name)
+        return rendered
+
+    def reference(
+        self,
+        *,
+        name: str,
+        value_id: str,
+        path: Path,
+        line_number: int,
+    ) -> str:
+        """Return a previously generated number without moving its counter."""
+        rendered = self._values.get((name, value_id))
+        if rendered is None:
+            raise PrepareError(
+                f"Numerator '{name}' has no generated value '{value_id}' "
+                f"for reference in {path}:{line_number}"
+            )
+        return rendered
+
+    def heading_level(self, lines: list[str], index: int) -> int | None:
+        """Return the visual heading level of a line, matching header_offset.lua."""
+        self._issued_in_heading.clear()
+        markdown_level = _markdown_heading_level(lines, index)
+        if markdown_level is None:
+            return None
+        # The file offset already includes the document base. Lua then subtracts
+        # one, so an H1 in a root file (offset 2) stays at visual level 1.
+        return markdown_level + self._offset - 2
+
+    def _reject_mixed_kind(
+        self,
+        name: str,
+        hierarchical: bool,
+        path: Path,
+        line_number: int,
+    ) -> None:
+        seen = self._kinds.get(name)
+        if seen is None:
+            self._kinds[name] = hierarchical
+            return
+        if seen != hierarchical:
+            kind = "hierarchical" if hierarchical else "flat"
+            raise PrepareError(
+                f"Numerator '{name}' cannot be both flat and hierarchical "
+                f"({kind} marker in {path}:{line_number})"
+            )
+
+    def _config(self, name: str) -> NumeratorConfig:
+        return self._configs.get(name, NumeratorConfig())
+
+    def _render_flat(self, name: str) -> str:
+        config = self._config(name)
+        number = self._flat.get(name, config.start)
+        self._flat[name] = number + 1
+        return f"{number}{config.suffix}"
+
+    def _render_hierarchical(self, name: str, heading_level: int | None) -> str:
+        config = self._config(name)
+        frames = self._stacks.setdefault(name, [])
+        if heading_level is None:
+            return self._render_body(name, config, frames)
+        del frames[sum(1 for frame in frames if frame.level < heading_level) :]
+        components = _heading_components(
+            self,
+            name,
+            frames,
+            heading_level,
+            config.start,
+        )
+        frames.append(_HierarchyFrame(heading_level, tuple(components)))
+        return _join_number(components, config)
+
+    def _render_body(
+        self,
+        name: str,
+        config: NumeratorConfig,
+        frames: list[_HierarchyFrame],
+    ) -> str:
+        if not frames:
+            return self._render_flat(name)
+        parent = frames[-1]
+        key = (name, parent.components)
+        number = self._body.get(key, 1)
+        self._body[key] = number + 1
+        return _join_number([*parent.components, number], config)
+
+
+@dataclass(frozen=True)
+class _HierarchyFrame:
+    """One heading that opened a hierarchical numerator section."""
+
+    level: int
+    components: tuple[int, ...]
+
+
+def _heading_components(
+    engine: NumeratorEngine,
+    name: str,
+    frames: list[_HierarchyFrame],
+    heading_level: int,
+    start: int,
+) -> list[int]:
+    """Build a number whose depth matches the visual heading level."""
+    if not frames:
+        issued = engine._body.get((name, ()), start)
+        components = [issued, *([1] * (heading_level - 1))]
+        engine._body[(name, ())] = issued + 1
+        return components
+    parent = frames[-1]
+    gap = heading_level - parent.level - 1
+    prefix = (*parent.components, *([1] * max(gap, 0)))
+    number = engine._body.get((name, prefix), 1)
+    engine._body[(name, prefix)] = number + 1
+    return [*prefix, number]
+
+
+def _join_number(components: list[int], config: NumeratorConfig) -> str:
+    return (
+        config.delimiter.join(str(component) for component in components)
+        + config.suffix
+    )
+
+
+def _markdown_heading_level(lines: list[str], index: int) -> int | None:
+    """Recognize an ATX or setext heading line outside a nested container."""
+    line = lines[index]
+    if line[:1] in (">",) or _is_indented_container(line):
+        return None
+    atx = _ATX_LEVEL.match(line)
+    if atx is not None:
+        return len(atx.group(1))
+    if not line.strip() or _SETEXT_UNDERLINE.fullmatch(line):
+        return None
+    underline = _next_content_line(lines, index + 1)
+    if underline is not None and _SETEXT_UNDERLINE.fullmatch(lines[underline]):
+        return 1 if lines[underline].lstrip().startswith("=") else 2
+    return None
+
+
+def _is_indented_container(line: str) -> bool:
+    """A four-space indent is a nested block, not a document heading."""
+    return line.startswith("    ") or line.startswith("\t")
+
+
+def _next_content_line(lines: list[str], index: int) -> int | None:
+    while index < len(lines):
+        if not _BLANK_LINE.fullmatch(lines[index]):
+            return index
+        index += 1
+    return None
 
 
 def _render_variable_value(value: Any) -> str:
@@ -296,36 +564,106 @@ def _render_variable_value(value: Any) -> str:
     return rendered.removesuffix("\n...\n").removesuffix("\n")
 
 
-def _replace_placeholders(
-    text: str,
+def _generate_numerator_lines(
+    lines: list[str],
     variables: dict[str, Any],
+    numerators: NumeratorEngine,
     *,
     path: Path,
-    line_number: int,
-) -> str:
-    """Replace {{name}} outside code. A leading backslash keeps the token."""
+    header_offset: int,
+) -> list[str]:
+    """Resolve variables and numerator generators, leaving references in place."""
+    numerators.begin_file(header_offset)
+    generated: list[str] = []
+    in_fence = False
+    for line_number, line in enumerate(lines, start=1):
+        line, in_fence = _substitute_variables(
+            line,
+            variables,
+            numerators,
+            path=path,
+            line_number=line_number,
+            in_fence=in_fence,
+            lines=lines,
+        )
+        generated.append(line)
+    return generated
 
-    def _replace(match: re.Match[str]) -> str:
-        if match.group(0).startswith("\\"):
-            return match.group(0)
-        name = match.group(1)
-        if name not in variables:
-            raise PrepareError(
-                f"Unknown variable '{name}' in {path}:{line_number}"
-            )
-        return _render_variable_value(variables[name])
 
-    return _PLACEHOLDER_PATTERN.sub(_replace, text)
-
-
-def _substitute_inline_spans(
+def _substitute_numerator_references(
     line: str,
-    variables: dict[str, Any],
+    numerators: NumeratorEngine,
+    *,
+    path: Path,
+    line_number: int,
+    in_fence: bool,
+) -> tuple[str, bool]:
+    """Replace numerator references after every generator has been allocated."""
+    fence = _FENCE_PATTERN.match(line)
+    if fence is not None:
+        return line, not in_fence
+    if in_fence:
+        return line, in_fence
+    return (
+        _substitute_reference_spans(
+            line,
+            numerators,
+            path=path,
+            line_number=line_number,
+        ),
+        in_fence,
+    )
+
+
+def _substitute_reference_spans(
+    line: str,
+    numerators: NumeratorEngine,
     *,
     path: Path,
     line_number: int,
 ) -> str:
-    """Substitute placeholders in one line, skipping inline code spans."""
+    """Resolve references in one line, skipping inline code spans."""
+    return _walk_inline_code(
+        line,
+        lambda segment: _replace_references(
+            segment,
+            numerators,
+            path=path,
+            line_number=line_number,
+        ),
+    )
+
+
+def _replace_references(
+    text: str,
+    numerators: NumeratorEngine,
+    *,
+    path: Path,
+    line_number: int,
+) -> str:
+    """Replace {{#=:name:id}} tokens. A leading backslash keeps the token."""
+    pieces: list[str] = []
+    cursor = 0
+    for match in _TOKEN_PATTERN.finditer(text):
+        pieces.append(text[cursor : match.start()])
+        if not match.group(0).startswith("\\") and match.group("reference"):
+            pieces.append(
+                numerators.reference(
+                    name=match.group("ref_name") or "default",
+                    value_id=match.group("ref_id") or "",
+                    path=path,
+                    line_number=line_number,
+                )
+            )
+        else:
+            pieces.append(match.group(0))
+        cursor = match.end()
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
+def _walk_inline_code(line: str, replace: Callable[[str], str]) -> str:
+    """Apply a replacement to text outside inline code spans."""
     parts: list[str] = []
     cursor = 0
     in_code = False
@@ -333,37 +671,107 @@ def _substitute_inline_spans(
     while index < len(line):
         if line[index] == "`" and (index == 0 or line[index - 1] != "\\"):
             segment = line[cursor:index]
-            if not in_code:
-                segment = _replace_placeholders(
-                    segment,
-                    variables,
-                    path=path,
-                    line_number=line_number,
-                )
-            parts.append(segment)
+            parts.append(replace(segment) if not in_code else segment)
             parts.append("`")
             cursor = index + 1
             in_code = not in_code
         index += 1
     tail = line[cursor:]
-    if not in_code:
-        tail = _replace_placeholders(
-            tail,
-            variables,
+    parts.append(replace(tail) if not in_code else tail)
+    return "".join(parts)
+
+
+def _replace_placeholders(
+    text: str,
+    variables: dict[str, Any],
+    numerators: NumeratorEngine,
+    *,
+    path: Path,
+    line_number: int,
+    heading_level: int | None,
+) -> str:
+    """Replace numerators and {{name}} outside code. A leading \\ keeps the token."""
+    pieces: list[str] = []
+    cursor = 0
+    for match in _TOKEN_PATTERN.finditer(text):
+        pieces.append(text[cursor : match.start()])
+        pieces.append(
+            _replace_one_token(
+                match,
+                variables,
+                numerators,
+                path=path,
+                line_number=line_number,
+                heading_level=heading_level,
+            )
+        )
+        cursor = match.end()
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
+def _replace_one_token(
+    match: re.Match[str],
+    variables: dict[str, Any],
+    numerators: NumeratorEngine,
+    *,
+    path: Path,
+    line_number: int,
+    heading_level: int | None,
+) -> str:
+    """Render one placeholder or numerator token, including an escaped one."""
+    token = match.group(0)
+    if token.startswith("\\"):
+        return token
+    if match.group("hashes"):
+        if match.group("reference"):
+            return match.group(0)
+        return numerators.render(
+            hierarchical=match.group("hashes") == "##",
+            name=match.group("name") or "default",
+            value_id=match.group("value_id"),
+            heading_level=heading_level,
             path=path,
             line_number=line_number,
         )
-    parts.append(tail)
-    return "".join(parts)
+    name = match.group("variable")
+    if name not in variables:
+        raise PrepareError(f"Unknown variable '{name}' in {path}:{line_number}")
+    return _render_variable_value(variables[name])
+
+
+def _substitute_inline_spans(
+    line: str,
+    variables: dict[str, Any],
+    numerators: NumeratorEngine,
+    *,
+    path: Path,
+    line_number: int,
+    heading_level: int | None,
+) -> str:
+    """Substitute placeholders in one line, skipping inline code spans."""
+    return _walk_inline_code(
+        line,
+        lambda segment: _replace_placeholders(
+            segment,
+            variables,
+            numerators,
+            path=path,
+            line_number=line_number,
+            heading_level=heading_level,
+        ),
+    )
 
 
 def _substitute_variables(
     line: str,
     variables: dict[str, Any],
+    numerators: NumeratorEngine,
     *,
     path: Path,
     line_number: int,
     in_fence: bool,
+    lines: list[str],
 ) -> tuple[str, bool]:
     """Substitute placeholders in one line and report the fence state after it."""
     fence = _FENCE_PATTERN.match(line)
@@ -371,12 +779,17 @@ def _substitute_variables(
         return line, not in_fence
     if in_fence:
         return line, in_fence
+    if _SETEXT_UNDERLINE.fullmatch(line):
+        return line, in_fence
+    heading_level = numerators.heading_level(lines, line_number - 1)
     return (
         _substitute_inline_spans(
             line,
             variables,
+            numerators,
             path=path,
             line_number=line_number,
+            heading_level=heading_level,
         ),
         in_fence,
     )
@@ -393,12 +806,12 @@ def _normalize_link_token(target: str) -> str:
         token = token[1:-1]
     return token
 
+
 def _compute_header_level(path: Path, current_level: int) -> int:
     """Compute the header offset level for a markdown file."""
     if path.name == "_index.md":
         return current_level
     return current_level + 1
-
 
 
 def _process_image_line(line: str, path: Path, resources_dir: Path) -> str:

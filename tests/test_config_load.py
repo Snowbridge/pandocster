@@ -6,9 +6,19 @@ from pathlib import Path
 
 import pytest
 
-from config.load import ConfigError, _diagram_tool_to_dict, _parse_diagram_tool, config_to_dict
-from config.schema import AppConfig, DiagramsConfig, DiagramToolConfig, DiagramOption, PandocConfig
-
+from config.load import (
+    ConfigError,
+    _diagram_tool_to_dict,
+    _parse_diagram_tool,
+    config_to_dict,
+)
+from config.schema import (
+    AppConfig,
+    DiagramOption,
+    DiagramsConfig,
+    DiagramToolConfig,
+    PandocConfig,
+)
 
 # ---------------------------------------------------------------------------
 # _parse_diagram_tool
@@ -52,8 +62,12 @@ def test_parse_diagram_tool_options_and_format_together() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _tool(fmt: str = "svg", options: list[DiagramOption] | None = None) -> DiagramToolConfig:
-    return DiagramToolConfig(enabled=True, bin="mmdc", options=options or [], format=fmt)
+def _tool(
+    fmt: str = "svg", options: list[DiagramOption] | None = None
+) -> DiagramToolConfig:
+    return DiagramToolConfig(
+        enabled=True, bin="mmdc", options=options or [], format=fmt
+    )
 
 
 def test_diagram_tool_to_dict_includes_format() -> None:
@@ -83,8 +97,12 @@ def _app_cfg(mmdc_fmt: str = "svg", gv_fmt: str = "png") -> AppConfig:
     return AppConfig(
         pandoc=PandocConfig(bin="pandoc", filters=[], metadata={}, options=[]),
         diagrams=DiagramsConfig(
-            mmdc=DiagramToolConfig(enabled=True, bin="mmdc", options=[], format=mmdc_fmt),
-            graphviz=DiagramToolConfig(enabled=True, bin="dot", options=[], format=gv_fmt),
+            mmdc=DiagramToolConfig(
+                enabled=True, bin="mmdc", options=[], format=mmdc_fmt
+            ),
+            graphviz=DiagramToolConfig(
+                enabled=True, bin="dot", options=[], format=gv_fmt
+            ),
         ),
     )
 
@@ -136,7 +154,9 @@ pandocster:
     assert cfg.diagrams.graphviz.format == "png"
 
 
-def test_load_config_default_format_when_key_absent(tmp_path: Path, monkeypatch) -> None:
+def test_load_config_default_format_when_key_absent(
+    tmp_path: Path, monkeypatch
+) -> None:
     """When 'format' is absent from YAML, the default 'png' is used."""
     yaml_content = """\
 pandocster:
@@ -242,3 +262,84 @@ def test_config_to_dict_omits_empty_variables() -> None:
         variables={},
     )
     assert "variables" not in config_to_dict(cfg)["pandocster"]
+
+
+def test_load_config_reads_numerators(tmp_path: Path) -> None:
+    yaml_content = """\
+pandocster:
+  numerators:
+    h:
+      suffix: ". "
+      start: 5
+      delimiter: "-"
+      extra: ignored
+    plain: null
+"""
+    (tmp_path / "pandocster.yaml").write_text(yaml_content, encoding="utf-8")
+
+    from config.load import load_config
+    from config.schema import NumeratorConfig
+
+    cfg = load_config(cwd=tmp_path)
+    assert cfg.numerators == {
+        "h": NumeratorConfig(suffix=". ", start=5, delimiter="-"),
+        "plain": NumeratorConfig(),
+    }
+
+
+def test_load_config_numerator_defaults_and_null_suffix(tmp_path: Path) -> None:
+    (tmp_path / "pandocster.yaml").write_text(
+        "pandocster:\n  numerators:\n    h:\n      suffix: null\n",
+        encoding="utf-8",
+    )
+
+    from config.load import load_config
+    from config.schema import NumeratorConfig
+
+    cfg = load_config(cwd=tmp_path)
+    assert cfg.numerators == {"h": NumeratorConfig(suffix="")}
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "message"),
+    [
+        ("pandocster:\n  numerators:\n    - h\n", "numerators"),
+        ("pandocster:\n  numerators:\n    bad-name: {}\n", "bad-name"),
+        ("pandocster:\n  numerators:\n    h: []\n", "numerators.h"),
+        ("pandocster:\n  numerators:\n    h:\n      suffix: 1\n", "suffix"),
+        ("pandocster:\n  numerators:\n    h:\n      start: one\n", "start"),
+        ("pandocster:\n  numerators:\n    h:\n      delimiter: 1\n", "delimiter"),
+    ],
+)
+def test_load_config_rejects_invalid_numerators(
+    tmp_path: Path, yaml_text: str, message: str
+) -> None:
+    (tmp_path / "pandocster.yaml").write_text(yaml_text, encoding="utf-8")
+
+    from config.load import load_config
+
+    with pytest.raises(ConfigError, match=message):
+        load_config(cwd=tmp_path)
+
+
+def test_config_to_dict_roundtrip_numerators() -> None:
+    from config.schema import NumeratorConfig
+
+    cfg = AppConfig(
+        pandoc=PandocConfig(bin="pandoc", filters=[], metadata={}, options=[]),
+        numerators={"h": NumeratorConfig(suffix="", start=5, delimiter="-")},
+    )
+    dumped = config_to_dict(cfg)
+    assert dumped["pandocster"]["numerators"]["h"] == {
+        "suffix": None,
+        "start": 5,
+        "delimiter": "-",
+    }
+
+
+def test_config_to_dict_omits_empty_numerators() -> None:
+    cfg = AppConfig(
+        pandoc=PandocConfig(bin="pandoc", filters=[], metadata={}, options=[]),
+        numerators={},
+    )
+    assert "numerators" not in config_to_dict(cfg)["pandocster"]

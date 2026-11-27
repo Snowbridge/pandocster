@@ -13,6 +13,7 @@ from .schema import (
     DiagramOption,
     DiagramsConfig,
     DiagramToolConfig,
+    NumeratorConfig,
     PandocConfig,
     PandocOption,
     default_config,
@@ -138,6 +139,76 @@ def _parse_pandoc(raw: Any, defaults: PandocConfig) -> PandocConfig:
 _VARIABLE_NAME = re.compile(r"[A-Za-z0-9_]+")
 
 
+def _parse_numerator_name(key: Any) -> str:
+    """Validate a numerator name with the same rules as a variable name."""
+    if not isinstance(key, str):
+        raise ConfigError(
+            f"'numerators' key must be a string, got {type(key).__name__}"
+        )
+    name = key.strip()
+    if _VARIABLE_NAME.fullmatch(name) is None:
+        raise ConfigError(
+            f"'numerators.{key}' is not a valid name: "
+            "use letters, digits, and underscores"
+        )
+    return name
+
+
+def _parse_numerator(name: str, raw: Any) -> NumeratorConfig:
+    """Parse one numerator. Unknown fields keep the defaults."""
+    if raw is None:
+        return NumeratorConfig()
+    if not isinstance(raw, dict):
+        raise ConfigError(
+            f"Expected 'numerators.{name}' as dict, got {type(raw).__name__}"
+        )
+    suffix = _parse_numerator_suffix(name, raw)
+    start = _parse_numerator_start(name, raw)
+    delimiter = _parse_numerator_delimiter(name, raw)
+    return NumeratorConfig(suffix=suffix, start=start, delimiter=delimiter)
+
+
+def _parse_numerator_suffix(name: str, raw: dict[str, Any]) -> str:
+    if "suffix" not in raw:
+        return "."
+    suffix = raw["suffix"]
+    if suffix is None:
+        return ""
+    if not isinstance(suffix, str):
+        raise ConfigError(f"'numerators.{name}.suffix' must be a string or null")
+    return suffix
+
+
+def _parse_numerator_start(name: str, raw: dict[str, Any]) -> int:
+    if "start" not in raw:
+        return 1
+    start = raw["start"]
+    if isinstance(start, bool) or not isinstance(start, int):
+        raise ConfigError(f"'numerators.{name}.start' must be an integer")
+    return start
+
+
+def _parse_numerator_delimiter(name: str, raw: dict[str, Any]) -> str:
+    if "delimiter" not in raw:
+        return "."
+    delimiter = raw["delimiter"]
+    if not isinstance(delimiter, str):
+        raise ConfigError(f"'numerators.{name}.delimiter' must be a string")
+    return delimiter
+
+
+def _parse_numerators(raw: Any) -> dict[str, NumeratorConfig]:
+    """Parse the optional numerators map. Absent and null both mean defaults."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ConfigError(f"Expected 'numerators' as dict, got {type(raw).__name__}")
+    return {
+        _parse_numerator_name(key): _parse_numerator(str(key).strip(), value)
+        for key, value in raw.items()
+    }
+
+
 def _parse_variables(raw: Any) -> dict[str, Any]:
     """Parse the optional variables map. Values are kept as parsed YAML."""
     if raw is None:
@@ -172,7 +243,16 @@ def _parse_app_config(raw: Any, defaults: AppConfig) -> AppConfig:
         variables = _parse_variables(raw.get("variables"))
     else:
         variables = dict(defaults.variables or {})
-    return AppConfig(pandoc=pandoc, diagrams=diagrams, variables=variables)
+    if "numerators" in raw:
+        numerators = _parse_numerators(raw.get("numerators"))
+    else:
+        numerators = dict(defaults.numerators or {})
+    return AppConfig(
+        pandoc=pandoc,
+        diagrams=diagrams,
+        variables=variables,
+        numerators=numerators,
+    )
 
 
 def _load_yaml(path: Path) -> Any:
@@ -207,7 +287,22 @@ def config_to_dict(cfg: AppConfig) -> dict[str, Any]:
         root["diagrams"] = diagrams_data
     if cfg.variables:
         root["variables"] = dict(cfg.variables)
+    if cfg.numerators:
+        root["numerators"] = {
+            name: _numerator_to_dict(numerator)
+            for name, numerator in cfg.numerators.items()
+        }
     return {ROOT_KEY: root}
+
+
+def _numerator_to_dict(numerator: NumeratorConfig) -> dict[str, Any]:
+    """Serialize one numerator. An empty suffix is YAML null."""
+    return {
+        "suffix": numerator.suffix or None,
+        "start": numerator.start,
+        "delimiter": numerator.delimiter,
+    }
+
 
 
 def _load_and_parse(path: Path, defaults: AppConfig) -> AppConfig:

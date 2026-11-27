@@ -20,6 +20,7 @@ _DEFAULT_FILTER_ORDER = (
     "newpage",
 )
 
+
 @dataclass
 class PandocOption:
     """A single pandoc option or flag (e.g. toc-depth=3, standalone=true)."""
@@ -66,6 +67,15 @@ class DiagramsConfig:
     graphviz: DiagramToolConfig | None
 
 
+@dataclass(frozen=True)
+class NumeratorConfig:
+    """Formatting of one numerator. Missing config uses these same defaults."""
+
+    suffix: str = "."
+    start: int = 1
+    delimiter: str = "."
+
+
 @dataclass
 class AppConfig:
     """Pandocster application config: pandoc settings and text variables."""
@@ -73,6 +83,7 @@ class AppConfig:
     pandoc: PandocConfig
     diagrams: DiagramsConfig | None = None
     variables: dict[str, Any] | None = None
+    numerators: dict[str, NumeratorConfig] | None = None
 
 
 def default_config(runner: Runner | None = None) -> AppConfig:
@@ -103,4 +114,5 @@ def default_config(runner: Runner | None = None) -> AppConfig:
             graphviz=DiagramToolConfig(enabled=dot_ok, bin="dot", options=[]),
         ),
         variables={},
+        numerators={},
     )

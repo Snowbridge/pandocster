@@ -49,6 +49,13 @@ def config_group() -> None:
       newpage                 Inserts page breaks at section boundaries.
 
     \b
+    NUMERATORS (optional pandocster.numerators)
+      {{#:name:id}}           Generates a number. {{#=:name:id}} references it.
+      {{##:name}}             Hierarchical number rooted at a heading.
+      suffix / start          Defaults are "." and 1. null suffix inserts nothing.
+      delimiter               Separator between hierarchical components. Default ".".
+
+    \b
     DIAGRAM TOOLS (auto-detected at startup)
       mmdc (Mermaid CLI)      Converts ```mermaid fenced blocks to images.
                               Enabled automatically when 'mmdc' is on PATH.
