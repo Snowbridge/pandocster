@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib import resources
 from pathlib import Path
 
 import yaml
@@ -17,6 +18,14 @@ pandocster build src/ --to html --prepared
 """
 
 _SRC_SUBDIRS = ("src/md", "src/assets", "src/templates")
+
+_AGENT_TEMPLATE_FILES = (
+    ("init_templates/AGENTS.md", "AGENTS.md"),
+    (
+        "init_templates/skills/pandocster-markdown/SKILL.md",
+        ".agents/skills/pandocster-markdown/SKILL.md",
+    ),
+)
 
 
 class InitError(RuntimeError):
@@ -71,14 +80,39 @@ def _create_generate_script(target_dir: Path) -> None:
         raise InitError(f"Failed to write generate.sh: {exc}") from exc
 
 
-def run_init(target_dir: Path, force: bool = False) -> None:
+def _write_agent_instructions(target_dir: Path) -> None:
+    """Write AGENTS.md and the pandocster-markdown skill, replacing both."""
+    templates = resources.files("pandocster")
+    for resource_name, relative_path in _AGENT_TEMPLATE_FILES:
+        destination = target_dir / relative_path
+        try:
+            content = (templates / resource_name).read_text(encoding="utf-8")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            existed = destination.exists()
+            destination.write_text(content, encoding="utf-8")
+            command_log_file(destination, "modified" if existed else "created")
+        except OSError as exc:
+            raise InitError(
+                f"Failed to write agent instructions '{destination}': {exc}"
+            ) from exc
+
+
+def run_init(target_dir: Path, force: bool = False, agents: bool = False) -> None:
     """Scaffold a pandocster project directory.
 
-    Creates pandocster.yaml, src/md, src/assets, src/templates, and generate.sh.
-    Raises InitError if the directory is non-empty and force is False.
+    Creates pandocster.yaml, src/md, src/assets, src/templates, generate.sh,
+    AGENTS.md, and the pandocster-markdown skill. Raises InitError if the
+    directory is non-empty and force is False.
+
+    With agents=True, only the agent instruction files are written or replaced.
+    An existing project is left otherwise untouched, and force is not required.
     """
     target_dir.mkdir(parents=True, exist_ok=True)
+    if agents:
+        _write_agent_instructions(target_dir)
+        return
     _check_dir_empty(target_dir, force)
     _create_config_file(target_dir)
     _create_src_dirs(target_dir)
     _create_generate_script(target_dir)
+    _write_agent_instructions(target_dir)

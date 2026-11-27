@@ -134,7 +134,8 @@ traceback пользователю.
 
 | Команда | Назначение |
 | --- | --- |
-| `init [dir] [--force]` | `pandocster.yaml`, `src/md`, `src/assets`, `src/templates`, `generate.sh` |
+| `init [dir] [--force]` | `pandocster.yaml`, `src/md`, `src/assets`, `src/templates`, `generate.sh`, `AGENTS.md`, `.agents/skills/pandocster-markdown/SKILL.md` |
+| `init [dir] --agents` | только `AGENTS.md` и скилл; непустой каталог допустим, эти два файла перезаписываются |
 | `check` | pandoc и Lua обязательны (код 1); `dot` и `mmdc` — предупреждение |
 | `prepare <src> [build]` | только подготовка; скрытая команда |
 | `build <src> [build] --to <format>` | подготовка и pandoc; форматы — список `_TO_CHOICES` |
@@ -174,6 +175,8 @@ API. Правила дерева:
 - Не ослабляй проверки версий pandoc и Lua и не меняй смысл `_index.md`,
   якорей и `999-reflinks.md` без теста, который фиксирует новое поведение.
 - `init` не должен затирать непустой каталог без `--force`.
+  `--agents` — отдельный режим: он пишет только `AGENTS.md` и скилл и может
+  работать в непустом каталоге. Это не обход `--force`.
 - `config create` не должен затирать существующий файл без `--force`.
 
 ## Проверки

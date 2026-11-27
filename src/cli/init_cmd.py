@@ -22,11 +22,27 @@ from .entrypoint import LOG_OPTION, ensure_log_session, main
     default=False,
     help="Initialize even if the directory is not empty.",
 )
-def init_command(ctx: click.Context, log: bool, dir: str, force: bool) -> NoReturn:
+@click.option(
+    "--agents",
+    is_flag=True,
+    default=False,
+    help=(
+        "Write only AGENTS.md and the pandocster-markdown skill. "
+        "Replaces those files and leaves the rest of the directory untouched."
+    ),
+)
+def init_command(
+    ctx: click.Context,
+    log: bool,
+    dir: str,
+    force: bool,
+    agents: bool,
+) -> NoReturn:
     """Prepare a directory for document development.
 
     Creates pandocster.yaml, src/md, src/assets, src/templates directories,
-    and a generate.sh build script.
+    a generate.sh build script, AGENTS.md, and the pandocster-markdown skill.
+    With --agents, only the agent instruction files are written or replaced.
 
     DIR defaults to the current directory.
     """
@@ -36,7 +52,7 @@ def init_command(ctx: click.Context, log: bool, dir: str, force: bool) -> NoRetu
     ensure_log_session(log_enabled)
 
     try:
-        run_init(target_dir=target_dir, force=force)
+        run_init(target_dir=target_dir, force=force, agents=agents)
     except InitError as exc:
         click.echo(str(exc), err=True)
         raise SystemExit(1)
@@ -44,5 +60,8 @@ def init_command(ctx: click.Context, log: bool, dir: str, force: bool) -> NoRetu
         click.echo(f"Unexpected error during init: {exc}", err=True)
         raise SystemExit(1)
 
-    click.echo(f"Initialized project directory: {target_dir}")
+    if agents:
+        click.echo(f"Wrote agent instructions: {target_dir}")
+    else:
+        click.echo(f"Initialized project directory: {target_dir}")
     raise SystemExit(0)

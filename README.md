@@ -15,7 +15,7 @@ The resulting DOCX (or other format) is written in the current directory; the de
 
 ## What it does
 
-- **Init** — `pandocster init [dir]` scaffolds a new project directory: creates `pandocster.yaml`, the source tree (`src/md/`, `src/assets/`, `src/templates/`), and a ready-to-run `generate.sh` build script.
+- **Init** — `pandocster init [dir]` scaffolds a new project directory: creates `pandocster.yaml`, the source tree (`src/md/`, `src/assets/`, `src/templates/`), a ready-to-run `generate.sh` build script, and agent instructions (`AGENTS.md` plus the `pandocster-markdown` skill). `pandocster init [dir] --agents` writes or replaces only those instruction files and leaves an existing project otherwise untouched.
 - **Build** — Runs pandoc on the prepared tree with configurable options, metadata, and Lua filters. Includes built-in filters: `absorb_nonvisual_paragraphs`, `header_offset`, `link_anchors`, `newpage`. During the preparation stage `Pandocster` builds a staging tree from a source Markdown directory: copies files, injects header-offset and anchor comments for structure, rewrites image links into a shared `resources/` directory, and preprocesses reference-style links. Pass `--prepared` to skip the preparation stage and reuse a build directory preserved by a previous `--preserve-build` run — useful when building the same content into multiple formats without repeating identical preparation work.
 - **Check** — `pandocster check` verifies that pandoc (≥3.8.3) and its Lua engine (≥5.4) are installed and sufficient.
 - **Config** — Optional `pandocster.yaml` in the project directory or `~/.config/pandocster/config.yaml` globally. Use `pandocster config show` to print the effective config and `pandocster config create` to write a `pandocster.yaml` in the current directory.
@@ -60,7 +60,8 @@ And there are more ways to install, please refer to official documentation [http
 
 | Command                                                   | Description                                                                                     |
 |-----------------------------------------------------------|-------------------------------------------------------------------------------------------------|
-| `pandocster init [dir] [--force]`                         | Scaffold a project directory with config and src tree                                           |
+| `pandocster init [dir] [--force]`                         | Scaffold a project directory with config, src tree, and agent instructions                      |
+| `pandocster init [dir] --agents`                          | Write or replace only `AGENTS.md` and the `pandocster-markdown` skill                           |
 | `pandocster check`                                        | Verify pandoc and Lua versions                                                                  |
 | `pandocster build <src> [build] --to <format>`            | Prepare and render a document (e.g. `--to pdf`)                                                 |
 | `pandocster build <src> [build] --to <format> --prepared` | Skip prepare step; reuse a build directory preserved by a previous run (see `--preserve-build`) |
@@ -98,6 +99,7 @@ pandocster --help
 pandocster check
 pandocster init ./test-doc                # scaffold a new project in ./test-doc
 pandocster init ./test-doc --force        # re-initialize even if directory is not empty
+pandocster init ./test-doc --agents       # write or replace only the agent instructions
 pandocster config show
 pandocster config create
 pandocster config create --force          # overwrite without prompting
